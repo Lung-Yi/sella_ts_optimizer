@@ -1,0 +1,10 @@
+*.xyz
+*.svg
+*.gif
+*.json
+*.txt
+*.traj
+debug/
+__pycache__/
+.agents/
+.codex/
