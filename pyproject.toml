@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sella-ts-optimizer"
+name = "ase-structure-optimizer"
 version = "0.1.0"
 description = "ASE-based geometry and transition-state optimization from a single XYZ structure."
 readme = "README.md"
@@ -20,7 +20,7 @@ mace = ["mace-torch", "mace-models"]
 all = ["geometric", "mace-torch", "mace-models"]
 
 [project.scripts]
-sella-ts-opt = "sella_ts_optimizer.cli:main"
+ase-structure-opt = "ase_structure_optimizer.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

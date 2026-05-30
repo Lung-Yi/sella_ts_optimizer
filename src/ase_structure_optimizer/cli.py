@@ -19,8 +19,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--mode",
         choices=("ts", "min", "minimum"),
-        default="ts",
-        help="Optimization target: Sella transition state or ordinary local minimum.",
+        default="min",
+        help="Optimization target: ordinary local minimum or Sella transition state.",
     )
     parser.add_argument(
         "--calculator",

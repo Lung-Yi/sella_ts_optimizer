@@ -1,10 +1,10 @@
-# Sella TS Optimizer
+# ASE Structure Optimizer
 
-Sella TS Optimizer is a small Python package for structure optimization from a
+ASE Structure Optimizer is a small Python package for structure optimization from a
 single initial XYZ geometry. It supports both ordinary local-minimum geometry
 optimization and transition-state optimization. It can be used in two ways:
 
-- as a command line tool: `sella-ts-opt input.xyz --calculator xtb`
+- as a command line tool: `ase-structure-opt input.xyz --calculator xtb`
 - as a Python library inside another project
 
 The package uses ASE as the molecular structure/calculator interface. Local
@@ -72,28 +72,28 @@ environment-specific and must be installed/configured separately.
 
 ## Quick Start: CLI
 
-Run transition-state optimization with the default calculator, `xtb`:
+Run ordinary local-minimum geometry optimization with the default calculator, `xtb`:
 
 ```bash
-sella-ts-opt path/to/ts_guess.xyz
+ase-structure-opt path/to/structure.xyz
 ```
 
-Run ordinary local-minimum geometry optimization:
+Run transition-state optimization explicitly:
 
 ```bash
-sella-ts-opt path/to/structure.xyz --mode min
+ase-structure-opt path/to/ts_guess.xyz --mode ts
 ```
 
 Choose a calculator:
 
 ```bash
-sella-ts-opt path/to/ts_guess.xyz --calculator maceomol
+ase-structure-opt path/to/structure.xyz --calculator maceomol
 ```
 
 Set charge and multiplicity:
 
 ```bash
-sella-ts-opt path/to/ts_guess.xyz \
+ase-structure-opt path/to/structure.xyz \
   --calculator aimnet2 \
   --charge 1 \
   --multiplicity 2
@@ -102,15 +102,15 @@ sella-ts-opt path/to/ts_guess.xyz \
 Write outputs to a specific directory:
 
 ```bash
-sella-ts-opt path/to/ts_guess.xyz \
+ase-structure-opt path/to/structure.xyz \
   --calculator maceomol \
-  --output-dir runs/my_ts
+  --output-dir runs/my_min
 ```
 
 Run optimization plus vibrational analysis:
 
 ```bash
-sella-ts-opt path/to/ts_guess.xyz \
+ase-structure-opt path/to/structure.xyz \
   --calculator maceomol \
   --frequencies
 ```
@@ -118,7 +118,7 @@ sella-ts-opt path/to/ts_guess.xyz \
 Choose an ASE optimizer for local-minimum optimization:
 
 ```bash
-sella-ts-opt path/to/structure.xyz \
+ase-structure-opt path/to/structure.xyz \
   --mode min \
   --optimizer lbfgs
 ```
@@ -126,7 +126,7 @@ sella-ts-opt path/to/structure.xyz \
 If you do not want to install the package, use the local wrapper:
 
 ```bash
-python run_sella_ts.py path/to/ts_guess.xyz --calculator xtb
+python run_ase_structure_opt.py path/to/structure.xyz --calculator xtb
 ```
 
 ## Quick Start: Python Library
@@ -136,7 +136,7 @@ Use an XYZ file for transition-state optimization:
 ```python
 from pathlib import Path
 
-from sella_ts_optimizer import CalculatorConfig, run_ts_optimization
+from ase_structure_optimizer import CalculatorConfig, run_ts_optimization
 
 result = run_ts_optimization(
     xyz_path=Path("ts_guess.xyz"),
@@ -153,7 +153,7 @@ Use an XYZ file for local-minimum geometry optimization:
 ```python
 from pathlib import Path
 
-from sella_ts_optimizer import CalculatorConfig, run_geometry_optimization
+from ase_structure_optimizer import CalculatorConfig, run_geometry_optimization
 
 result = run_geometry_optimization(
     xyz_path=Path("structure.xyz"),
@@ -173,7 +173,7 @@ from pathlib import Path
 
 from ase.io import read
 
-from sella_ts_optimizer import CalculatorConfig, optimize_ts_atoms
+from ase_structure_optimizer import CalculatorConfig, optimize_ts_atoms
 
 atoms = read("ts_guess.xyz")
 
@@ -191,7 +191,7 @@ Run frequency analysis from Python:
 ```python
 from pathlib import Path
 
-from sella_ts_optimizer import CalculatorConfig, run_frequency_analysis
+from ase_structure_optimizer import CalculatorConfig, run_frequency_analysis
 
 freq_result = run_frequency_analysis(
     xyz_path=Path("runs/my_ts/sella_ts_optimized.xyz"),
@@ -206,7 +206,7 @@ print(freq_result.frequencies_cm1)
 The main public imports are:
 
 ```python
-from sella_ts_optimizer import (
+from ase_structure_optimizer import (
     CalculatorConfig,
     FrequencyResult,
     OptimizationResult,
@@ -255,11 +255,11 @@ The CLI accepts these calculator names:
 Examples:
 
 ```bash
-sella-ts-opt ts_guess.xyz --calculator xtb
-sella-ts-opt structure.xyz --mode min --calculator xtb
-sella-ts-opt structure.xyz --mode min --optimizer fire --calculator maceomol
-sella-ts-opt ts_guess.xyz --calculator maceomol --mace-model extra_large
-sella-ts-opt ts_guess.xyz --calculator qchem --threads 32
+ase-structure-opt ts_guess.xyz --mode ts --calculator xtb
+ase-structure-opt structure.xyz --calculator xtb
+ase-structure-opt structure.xyz --mode min --optimizer fire --calculator maceomol
+ase-structure-opt structure.xyz --calculator maceomol --mace-model extra_large
+ase-structure-opt ts_guess.xyz --mode ts --calculator qchem --threads 32
 ```
 
 ## MACE-OMOL Model Location
@@ -304,13 +304,13 @@ For example, this command makes MACE read/write the model under
 
 ```bash
 XDG_CACHE_HOME=/data/model_cache \
-  sella-ts-opt ts_guess.xyz --calculator maceomol
+  ase-structure-opt structure.xyz --calculator maceomol
 ```
 
 You can also bypass the cache lookup and pass a local model path explicitly:
 
 ```bash
-sella-ts-opt ts_guess.xyz \
+ase-structure-opt structure.xyz \
   --calculator maceomol \
   --mace-model /path/to/MACE-omol-0-extra-large-1024.model
 ```
@@ -320,32 +320,32 @@ The same setting works from Python:
 ```python
 from pathlib import Path
 
-from sella_ts_optimizer import CalculatorConfig, run_ts_optimization
+from ase_structure_optimizer import CalculatorConfig, run_geometry_optimization
 
 config = CalculatorConfig(
     name="maceomol",
     mace_model="/home/lungyi/.cache/mace/MACE-omol-0-extra-large-1024.model",
 )
 
-result = run_ts_optimization(
-    xyz_path=Path("ts_guess.xyz"),
+result = run_geometry_optimization(
+    xyz_path=Path("structure.xyz"),
     calculator_config=config,
-    output_dir=Path("runs/my_ts"),
+    output_dir=Path("runs/my_min"),
 )
 ```
 
 ## Outputs
 
-By default, transition-state outputs are written next to the input XYZ in:
-
-```text
-<xyz_stem>_sella_ts_<calculator>/
-```
-
-Local-minimum outputs are written in:
+By default, local-minimum outputs are written next to the input XYZ in:
 
 ```text
 <xyz_stem>_min_<calculator>/
+```
+
+Transition-state outputs, when `--mode ts` is used, are written in:
+
+```text
+<xyz_stem>_sella_ts_<calculator>/
 ```
 
 Transition-state optimization outputs:

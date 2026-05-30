@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parent
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
-from sella_ts_optimizer.cli import main  # noqa: E402
+from ase_structure_optimizer.cli import main  # noqa: E402
 
 
 if __name__ == "__main__":
