@@ -1,4 +1,4 @@
-"""Vibrational frequency analysis for optimized transition states."""
+"""Vibrational frequency analysis for optimized structures."""
 
 from __future__ import annotations
 

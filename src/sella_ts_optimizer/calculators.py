@@ -1,4 +1,4 @@
-"""Calculator factory for Sella transition-state optimization."""
+"""Calculator factory for structure optimization."""
 
 from __future__ import annotations
 

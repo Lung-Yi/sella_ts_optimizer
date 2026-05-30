@@ -1,4 +1,4 @@
-"""Run the Sella TS optimizer without installing the package."""
+"""Run the structure optimizer without installing the package."""
 
 from __future__ import annotations
 

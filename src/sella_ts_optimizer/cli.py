@@ -1,4 +1,4 @@
-"""Command line interface for Sella TS optimization."""
+"""Command line interface for structure optimization."""
 
 from __future__ import annotations
 
@@ -6,15 +6,22 @@ import argparse
 from pathlib import Path
 
 from .calculators import CalculatorConfig, available_calculators
+from .runner import available_minimizers
 
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser."""
 
     parser = argparse.ArgumentParser(
-        description="Optimize a transition-state guess with Sella from one XYZ file.",
+        description="Optimize an XYZ structure as a transition state or local minimum.",
     )
-    parser.add_argument("xyz", type=Path, help="Initial transition-state guess in XYZ format.")
+    parser.add_argument("xyz", type=Path, help="Initial structure in XYZ format.")
+    parser.add_argument(
+        "--mode",
+        choices=("ts", "min", "minimum"),
+        default="ts",
+        help="Optimization target: Sella transition state or ordinary local minimum.",
+    )
     parser.add_argument(
         "--calculator",
         default="xtb",
@@ -24,8 +31,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--charge", type=int, default=0, help="Total molecular charge.")
     parser.add_argument("--multiplicity", type=int, default=1, help="Spin multiplicity.")
     parser.add_argument("--output-dir", type=Path, default=None, help="Directory for output files.")
-    parser.add_argument("--fmax", type=float, default=5e-3, help="Sella force convergence threshold.")
-    parser.add_argument("--max-steps", type=int, default=200, help="Maximum Sella optimization steps.")
+    parser.add_argument("--fmax", type=float, default=5e-3, help="Force convergence threshold.")
+    parser.add_argument("--max-steps", type=int, default=200, help="Maximum optimization steps.")
+    parser.add_argument(
+        "--optimizer",
+        default="bfgs",
+        choices=available_minimizers(),
+        help="ASE optimizer used when --mode min.",
+    )
     parser.add_argument(
         "--frequencies",
         action="store_true",
@@ -62,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--qchem-label",
-        default="sella_ts",
+        default=None,
         help="Q-Chem calculation label/prefix.",
     )
     parser.add_argument(
@@ -84,8 +97,11 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"XYZ file does not exist: {xyz}")
 
     output_dir = args.output_dir
+    mode = "min" if args.mode == "minimum" else args.mode
+
     if output_dir is None:
-        output_dir = xyz.with_suffix("").parent / f"{xyz.stem}_sella_ts_{args.calculator}"
+        suffix = "sella_ts" if mode == "ts" else "min"
+        output_dir = xyz.with_suffix("").parent / f"{xyz.stem}_{suffix}_{args.calculator}"
     output_dir = output_dir.expanduser().resolve()
 
     config = CalculatorConfig(
@@ -95,23 +111,41 @@ def main(argv: list[str] | None = None) -> int:
         threads=args.threads,
         qchem_method=args.qchem_method,
         qchem_basis=args.qchem_basis,
-        qchem_label=args.qchem_label,
+        qchem_label=args.qchem_label or ("sella_ts" if mode == "ts" else "geometry_min"),
         mace_model=args.mace_model,
     )
 
-    from .runner import run_ts_optimization
+    if mode == "ts":
+        from .runner import run_ts_optimization
 
-    result = run_ts_optimization(
-        xyz_path=xyz,
-        calculator_config=config,
-        output_dir=output_dir,
-        fmax=args.fmax,
-        max_steps=args.max_steps,
-    )
+        result = run_ts_optimization(
+            xyz_path=xyz,
+            calculator_config=config,
+            output_dir=output_dir,
+            fmax=args.fmax,
+            max_steps=args.max_steps,
+        )
+    else:
+        from .runner import run_geometry_optimization
+
+        result = run_geometry_optimization(
+            xyz_path=xyz,
+            calculator_config=config,
+            output_dir=output_dir,
+            fmax=args.fmax,
+            max_steps=args.max_steps,
+            optimizer=args.optimizer,
+        )
 
     status = "converged" if result.converged else "stopped"
-    print(f"Sella optimization {status} after {result.steps} saved step(s).")
-    print(f"Final TS geometry: {result.final_xyz}")
+    label = (
+        "Sella TS optimization"
+        if mode == "ts"
+        else f"{args.optimizer.upper()} geometry optimization"
+    )
+    final_label = "Final TS geometry" if mode == "ts" else "Final optimized geometry"
+    print(f"{label} {status} after {result.steps} saved step(s).")
+    print(f"{final_label}: {result.final_xyz}")
     print(f"Optimization path: {result.optimized_xyz}")
     print(f"Trajectory: {result.trajectory}")
 

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sella-ts-optimizer"
 version = "0.1.0"
-description = "Sella-based transition-state optimization from a single XYZ guess."
+description = "ASE-based geometry and transition-state optimization from a single XYZ structure."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

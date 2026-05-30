@@ -1,38 +1,41 @@
 # Sella TS Optimizer
 
-Sella TS Optimizer is a small Python package for transition-state optimization
-from a single initial XYZ guess. It can be used in two ways:
+Sella TS Optimizer is a small Python package for structure optimization from a
+single initial XYZ geometry. It supports both ordinary local-minimum geometry
+optimization and transition-state optimization. It can be used in two ways:
 
 - as a command line tool: `sella-ts-opt input.xyz --calculator xtb`
 - as a Python library inside another project
 
-The package uses ASE as the molecular structure/calculator interface and Sella
-as the saddle-point optimizer. Optional vibrational analysis uses ASE finite
+The package uses ASE as the molecular structure/calculator interface. Local
+minimum searches use ASE optimizers, and transition-state searches use Sella as
+the saddle-point optimizer. Optional vibrational analysis uses ASE finite
 differences plus geomeTRIC normal-mode analysis.
 
 ## Workflow
 
 ```text
-initial TS guess XYZ or ASE Atoms
+initial XYZ or ASE Atoms
 -> attach charge and spin metadata
 -> build selected ASE calculator
--> Sella saddle-point optimization
--> optimized TS XYZ, optimization path, ASE trajectory
+-> ASE local-minimum optimization or Sella saddle-point optimization
+-> final optimized XYZ, optimization path, ASE trajectory
 ```
 
 With frequency analysis enabled:
 
 ```text
-optimized TS structure
+optimized structure
 -> ASE finite-difference Hessian
 -> geomeTRIC frequency analysis
 -> frequency summary and detailed normal-mode output
 ```
 
-A successful Sella run means the optimizer converged according to the selected
-calculator. It does not prove the structure is the chemically desired transition
-state. For a first-order transition state, the optimized structure should
-normally have exactly one imaginary frequency.
+A successful optimization means the selected optimizer converged according to
+the selected calculator. It does not prove the structure is chemically desired.
+For a local minimum, the optimized structure should normally have no imaginary
+frequencies. For a first-order transition state, it should normally have exactly
+one imaginary frequency.
 
 ## Installation
 
@@ -69,10 +72,16 @@ environment-specific and must be installed/configured separately.
 
 ## Quick Start: CLI
 
-Run with the default calculator, `xtb`:
+Run transition-state optimization with the default calculator, `xtb`:
 
 ```bash
 sella-ts-opt path/to/ts_guess.xyz
+```
+
+Run ordinary local-minimum geometry optimization:
+
+```bash
+sella-ts-opt path/to/structure.xyz --mode min
 ```
 
 Choose a calculator:
@@ -106,6 +115,14 @@ sella-ts-opt path/to/ts_guess.xyz \
   --frequencies
 ```
 
+Choose an ASE optimizer for local-minimum optimization:
+
+```bash
+sella-ts-opt path/to/structure.xyz \
+  --mode min \
+  --optimizer lbfgs
+```
+
 If you do not want to install the package, use the local wrapper:
 
 ```bash
@@ -114,7 +131,7 @@ python run_sella_ts.py path/to/ts_guess.xyz --calculator xtb
 
 ## Quick Start: Python Library
 
-Use an XYZ file:
+Use an XYZ file for transition-state optimization:
 
 ```python
 from pathlib import Path
@@ -125,6 +142,24 @@ result = run_ts_optimization(
     xyz_path=Path("ts_guess.xyz"),
     calculator_config=CalculatorConfig(name="maceomol"),
     output_dir=Path("runs/my_ts"),
+)
+
+print(result.converged)
+print(result.final_xyz)
+```
+
+Use an XYZ file for local-minimum geometry optimization:
+
+```python
+from pathlib import Path
+
+from sella_ts_optimizer import CalculatorConfig, run_geometry_optimization
+
+result = run_geometry_optimization(
+    xyz_path=Path("structure.xyz"),
+    calculator_config=CalculatorConfig(name="maceomol"),
+    output_dir=Path("runs/my_minimum"),
+    optimizer="bfgs",
 )
 
 print(result.converged)
@@ -177,8 +212,11 @@ from sella_ts_optimizer import (
     OptimizationResult,
     analyze_frequencies_atoms,
     available_calculators,
+    available_minimizers,
     build_calculator,
+    optimize_geometry_atoms,
     optimize_ts_atoms,
+    run_geometry_optimization,
     run_frequency_analysis,
     run_ts_optimization,
 )
@@ -186,7 +224,7 @@ from sella_ts_optimizer import (
 
 ## Input XYZ
 
-The input should be a single-frame XYZ file containing an initial
+The input should be a single-frame XYZ file containing an initial structure or
 transition-state guess:
 
 ```xyz
@@ -218,6 +256,8 @@ Examples:
 
 ```bash
 sella-ts-opt ts_guess.xyz --calculator xtb
+sella-ts-opt structure.xyz --mode min --calculator xtb
+sella-ts-opt structure.xyz --mode min --optimizer fire --calculator maceomol
 sella-ts-opt ts_guess.xyz --calculator maceomol --mace-model extra_large
 sella-ts-opt ts_guess.xyz --calculator qchem --threads 32
 ```
@@ -296,17 +336,29 @@ result = run_ts_optimization(
 
 ## Outputs
 
-By default, outputs are written next to the input XYZ in:
+By default, transition-state outputs are written next to the input XYZ in:
 
 ```text
 <xyz_stem>_sella_ts_<calculator>/
 ```
 
-Optimization outputs:
+Local-minimum outputs are written in:
+
+```text
+<xyz_stem>_min_<calculator>/
+```
+
+Transition-state optimization outputs:
 
 - `sella_ts_optimized.xyz`: final optimized transition-state geometry
 - `sella_ts_path.xyz`: all saved optimization images
 - `sella_ts.traj`: ASE trajectory written by Sella
+
+Local-minimum optimization outputs:
+
+- `geometry_min_optimized.xyz`: final optimized geometry
+- `geometry_min_path.xyz`: all saved optimization images
+- `geometry_min.traj`: ASE trajectory written by the selected ASE optimizer
 
 Frequency outputs, when `--frequencies` is used:
 
@@ -314,16 +366,17 @@ Frequency outputs, when `--frequencies` is used:
 - `vibrations_<calculator>_geometric.txt`: detailed geomeTRIC output
 - `vib_<calculator>/`: ASE finite-difference displacement cache
 
-The CLI prints whether Sella reported convergence, where files were written,
-and how many imaginary frequencies were found when frequency analysis is run.
+The CLI prints whether the optimizer reported convergence, where files were
+written, and how many imaginary frequencies were found when frequency analysis
+is run.
 
 ## API Design Notes
 
-Use `run_ts_optimization()` when your workflow starts from an XYZ file. Use
-`optimize_ts_atoms()` when another package already created an ASE `Atoms`
-object.
+Use `run_geometry_optimization()` or `run_ts_optimization()` when your workflow
+starts from an XYZ file. Use `optimize_geometry_atoms()` or `optimize_ts_atoms()`
+when another package already created an ASE `Atoms` object.
 
-Both functions return `OptimizationResult`:
+These functions return `OptimizationResult`:
 
 ```python
 OptimizationResult(
@@ -332,6 +385,8 @@ OptimizationResult(
     final_xyz=...,
     converged=...,
     steps=...,
+    mode=...,
+    optimizer=...,
 )
 ```
 
@@ -341,7 +396,7 @@ Use `run_frequency_analysis()` for an optimized XYZ file. Use
 
 ## Practical Notes
 
-- Sella optimizes on the potential-energy surface provided by the selected
+- All optimizers use the potential-energy surface provided by the selected
   calculator. Results depend strongly on the calculator.
 - xTB and ML potentials are usually practical for screening.
 - Q-Chem/DFT can be expensive, especially for frequency analysis.

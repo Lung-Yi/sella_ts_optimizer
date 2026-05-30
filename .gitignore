@@ -8,3 +8,7 @@ debug/
 __pycache__/
 .agents/
 .codex/
+*.egg-info/
+*.egg
+build/
+dist/
