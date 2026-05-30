@@ -222,19 +222,76 @@ sella-ts-opt ts_guess.xyz --calculator maceomol --mace-model extra_large
 sella-ts-opt ts_guess.xyz --calculator qchem --threads 32
 ```
 
-MACE-OMOL downloads pretrained model files through the MACE package. By default,
-the cache is:
+## MACE-OMOL Model Location
+
+When `--calculator maceomol` is used with the default model name,
+`--mace-model extra_large`, the MACE package looks for this model file:
+
+```text
+MACE-omol-0-extra-large-1024.model
+```
+
+If the file is not already cached, MACE downloads it automatically from the
+official MACE foundations release and saves it in the local MACE cache.
+
+By default, the cache directory is:
 
 ```text
 ~/.cache/mace/
 ```
 
-You can also pass a local model path:
+So the default full path is usually:
+
+```text
+~/.cache/mace/MACE-omol-0-extra-large-1024.model
+```
+
+On this machine, the model was found at:
+
+```text
+/home/lungyi/.cache/mace/MACE-omol-0-extra-large-1024.model
+```
+
+The cache location follows `XDG_CACHE_HOME`. If `XDG_CACHE_HOME` is set, MACE
+uses:
+
+```text
+$XDG_CACHE_HOME/mace/MACE-omol-0-extra-large-1024.model
+```
+
+For example, this command makes MACE read/write the model under
+`/data/model_cache/mace/`:
+
+```bash
+XDG_CACHE_HOME=/data/model_cache \
+  sella-ts-opt ts_guess.xyz --calculator maceomol
+```
+
+You can also bypass the cache lookup and pass a local model path explicitly:
 
 ```bash
 sella-ts-opt ts_guess.xyz \
   --calculator maceomol \
   --mace-model /path/to/MACE-omol-0-extra-large-1024.model
+```
+
+The same setting works from Python:
+
+```python
+from pathlib import Path
+
+from sella_ts_optimizer import CalculatorConfig, run_ts_optimization
+
+config = CalculatorConfig(
+    name="maceomol",
+    mace_model="/home/lungyi/.cache/mace/MACE-omol-0-extra-large-1024.model",
+)
+
+result = run_ts_optimization(
+    xyz_path=Path("ts_guess.xyz"),
+    calculator_config=config,
+    output_dir=Path("runs/my_ts"),
+)
 ```
 
 ## Outputs
