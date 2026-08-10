@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from ase import Atoms
 
+from .calculators import CalculatorConfig, build_calculator
+
 
 def apply_charge_and_multiplicity(
     atoms: Atoms,
@@ -24,4 +26,20 @@ def apply_charge_and_multiplicity(
         magnetic_moments[0] = multiplicity - 1
         atoms.set_initial_magnetic_moments(magnetic_moments)
 
+    return atoms
+
+
+def prepare_atoms(atoms: Atoms, calculator_config: CalculatorConfig) -> Atoms:
+    """Copy atoms, attach charge/spin metadata, and attach a calculator.
+
+    The input Atoms object is never mutated; a prepared copy is returned.
+    """
+
+    atoms = atoms.copy()
+    atoms = apply_charge_and_multiplicity(
+        atoms,
+        charge=calculator_config.charge,
+        multiplicity=calculator_config.multiplicity,
+    )
+    atoms.calc = build_calculator(calculator_config)
     return atoms

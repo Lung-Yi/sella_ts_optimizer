@@ -31,6 +31,16 @@ optimized structure
 -> frequency summary and detailed normal-mode output
 ```
 
+With IRC path tracing:
+
+```text
+converged transition-state XYZ (e.g. output of --mode ts)
+-> attach charge and spin metadata
+-> build selected ASE calculator
+-> Sella IRC, walked forward and/or reverse from the saddle point
+-> forward path XYZ, reverse path XYZ, stitched reactant->TS->product path XYZ
+```
+
 A successful optimization means the selected optimizer converged according to
 the selected calculator. It does not prove the structure is chemically desired.
 For a local minimum, the optimized structure should normally have no imaginary
@@ -123,6 +133,33 @@ ase-structure-opt path/to/structure.xyz \
   --optimizer lbfgs
 ```
 
+Trace the IRC path from a converged transition state:
+
+```bash
+ase-structure-opt path/to/sella_ts_optimized.xyz \
+  --mode irc \
+  --calculator maceomol
+```
+
+The input to `--mode irc` should already be a converged transition state, for
+example the `sella_ts_optimized.xyz` produced by `--mode ts`. IRC starts by
+diagonalizing the Hessian at the input geometry to find the reaction
+direction, so starting from a geometry that is not close to a genuine
+first-order saddle point will produce a poor or invalid path. IRC is
+calculator-agnostic, exactly like `--mode ts`, so `--calculator maceomol`
+works the same way here as it does for TS or local-minimum optimization.
+
+By default both directions away from the transition state are traced. Trace
+only one direction, or change the IRC step size:
+
+```bash
+ase-structure-opt path/to/sella_ts_optimized.xyz \
+  --mode irc \
+  --calculator maceomol \
+  --irc-direction forward \
+  --irc-dx 0.05
+```
+
 If you do not want to install the package, use the local wrapper:
 
 ```bash
@@ -186,6 +223,23 @@ result = optimize_ts_atoms(
 print(result.final_xyz)
 ```
 
+Trace an IRC path from Python:
+
+```python
+from pathlib import Path
+
+from ase_structure_optimizer import CalculatorConfig, run_irc
+
+irc_result = run_irc(
+    xyz_path=Path("runs/my_ts/sella_ts_optimized.xyz"),
+    calculator_config=CalculatorConfig(name="maceomol"),
+    output_dir=Path("runs/my_irc"),
+)
+
+print(irc_result.forward_converged, irc_result.reverse_converged)
+print(irc_result.full_path_xyz)
+```
+
 Run frequency analysis from Python:
 
 ```python
@@ -209,15 +263,18 @@ The main public imports are:
 from ase_structure_optimizer import (
     CalculatorConfig,
     FrequencyResult,
+    IRCResult,
     OptimizationResult,
     analyze_frequencies_atoms,
     available_calculators,
     available_minimizers,
     build_calculator,
     optimize_geometry_atoms,
+    optimize_irc_atoms,
     optimize_ts_atoms,
     run_geometry_optimization,
     run_frequency_analysis,
+    run_irc,
     run_ts_optimization,
 )
 ```
@@ -252,6 +309,10 @@ The CLI accepts these calculator names:
 - `b3lyp`: Q-Chem with `b3lyp/def2-svp`
 - `emt`: ASE EMT, useful only for smoke tests
 
+IRC path tracing (`--mode irc`) uses the same Sella machinery as `--mode ts`
+and imposes no extra requirements on the calculator, so every calculator
+listed above works with `--mode irc` exactly as it does with `--mode ts`.
+
 Examples:
 
 ```bash
@@ -260,6 +321,7 @@ ase-structure-opt structure.xyz --calculator xtb
 ase-structure-opt structure.xyz --mode min --optimizer fire --calculator maceomol
 ase-structure-opt structure.xyz --calculator maceomol --mace-model extra_large
 ase-structure-opt ts_guess.xyz --mode ts --calculator qchem --threads 32
+ase-structure-opt sella_ts_optimized.xyz --mode irc --calculator maceomol
 ```
 
 ## MACE-OMOL Model Location
@@ -360,6 +422,23 @@ Local-minimum optimization outputs:
 - `geometry_min_path.xyz`: all saved optimization images
 - `geometry_min.traj`: ASE trajectory written by the selected ASE optimizer
 
+IRC outputs, when `--mode irc` is used, are written in:
+
+```text
+<xyz_stem>_irc_<calculator>/
+```
+
+- `sella_irc_path.xyz`: the full stitched IRC path — reverse-branch images
+  reversed, then forward-branch images, so the shared transition-state frame
+  appears exactly once and the path reads continuously from one branch's
+  endpoint through the TS to the other branch's endpoint. This is the main
+  deliverable for visualizing the reaction path.
+- `sella_irc_forward.xyz` / `sella_irc_reverse.xyz`: all saved images for each
+  individually traced direction (only written for directions actually run,
+  per `--irc-direction`)
+- `sella_irc_forward.traj` / `sella_irc_reverse.traj`: ASE trajectories
+  written by Sella's IRC optimizer for each direction
+
 Frequency outputs, when `--frequencies` is used:
 
 - `frequencies_<calculator>_summary.txt`: compact frequency table
@@ -368,7 +447,8 @@ Frequency outputs, when `--frequencies` is used:
 
 The CLI prints whether the optimizer reported convergence, where files were
 written, and how many imaginary frequencies were found when frequency analysis
-is run.
+is run. For `--mode irc`, it prints convergence and step count separately for
+the forward and reverse branches, plus the path to the stitched full path XYZ.
 
 ## API Design Notes
 
@@ -394,12 +474,45 @@ Use `run_frequency_analysis()` for an optimized XYZ file. Use
 `analyze_frequencies_atoms()` for an ASE `Atoms` object. Both return
 `FrequencyResult`, including `frequencies_cm1` and `imaginary_count`.
 
+Use `run_irc()` for a converged transition-state XYZ file. Use
+`optimize_irc_atoms()` for an ASE `Atoms` object already at a saddle point.
+Both return `IRCResult`:
+
+```python
+IRCResult(
+    forward_trajectory=...,
+    reverse_trajectory=...,
+    forward_xyz=...,
+    reverse_xyz=...,
+    full_path_xyz=...,
+    forward_converged=...,
+    reverse_converged=...,
+    forward_steps=...,
+    reverse_steps=...,
+    direction=...,
+    optimizer=...,
+)
+```
+
+Fields for a direction that was not run (via `direction="forward"` or
+`direction="reverse"`) are `None`.
+
 ## Practical Notes
 
 - All optimizers use the potential-energy surface provided by the selected
   calculator. Results depend strongly on the calculator.
 - xTB and ML potentials are usually practical for screening.
 - Q-Chem/DFT can be expensive, especially for frequency analysis.
+- IRC assumes the input geometry is already a converged first-order saddle
+  point; a direction that reaches `--max-steps` without the local Hessian's
+  lowest eigenvalue turning positive is reported as `converged=False`
+  ("stopped"), which is a normal, expected outcome for IRC and not
+  necessarily a failure. `--irc-dx` controls the IRC step size; other Sella
+  IRC tuning parameters are left at their library defaults.
+- IRC computes an initial Hessian diagonalization independently for each
+  direction it runs (`--irc-direction both` runs it twice). This is
+  negligible for xTB and ML potentials, but doubles the up-front Hessian cost
+  for Q-Chem/DFT calculators.
 - Classical force fields and general-purpose ML potentials may be unreliable
   for reactive geometries outside their training domain.
 - A common workflow is to optimize cheaply with xTB or an ML potential, then

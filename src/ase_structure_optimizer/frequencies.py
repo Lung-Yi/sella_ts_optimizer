@@ -10,8 +10,8 @@ from ase import Atoms
 from ase.io import read
 from ase.vibrations import Vibrations
 
-from .atoms import apply_charge_and_multiplicity
-from .calculators import CalculatorConfig, build_calculator
+from .atoms import prepare_atoms
+from .calculators import CalculatorConfig
 
 
 BOHR_TO_ANG = 0.529177210903
@@ -78,13 +78,7 @@ def analyze_frequencies_atoms(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    atoms = atoms.copy()
-    atoms = apply_charge_and_multiplicity(
-        atoms,
-        charge=calculator_config.charge,
-        multiplicity=calculator_config.multiplicity,
-    )
-    atoms.calc = build_calculator(calculator_config)
+    atoms = prepare_atoms(atoms, calculator_config)
 
     vibration_directory = output_dir / f"vib_{calculator_config.name}"
     vib = Vibrations(atoms, delta=delta, name=str(vibration_directory))

@@ -9,8 +9,8 @@ from typing import Literal
 from ase import Atoms
 from ase.io import read, write
 
-from .atoms import apply_charge_and_multiplicity
-from .calculators import CalculatorConfig, build_calculator
+from .atoms import prepare_atoms
+from .calculators import CalculatorConfig
 
 
 @dataclass(frozen=True)
@@ -82,7 +82,7 @@ def optimize_ts_atoms(
     """
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    atoms = _prepare_atoms(atoms, calculator_config)
+    atoms = prepare_atoms(atoms, calculator_config)
 
     from sella import Sella
 
@@ -145,7 +145,7 @@ def optimize_geometry_atoms(
     """
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    atoms = _prepare_atoms(atoms, calculator_config)
+    atoms = prepare_atoms(atoms, calculator_config)
     optimizer_class = _get_minimizer(optimizer)
 
     trajectory = output_dir / trajectory_name
@@ -161,17 +161,6 @@ def optimize_geometry_atoms(
         mode="min",
         optimizer=optimizer.lower(),
     )
-
-
-def _prepare_atoms(atoms: Atoms, calculator_config: CalculatorConfig) -> Atoms:
-    atoms = atoms.copy()
-    atoms = apply_charge_and_multiplicity(
-        atoms,
-        charge=calculator_config.charge,
-        multiplicity=calculator_config.multiplicity,
-    )
-    atoms.calc = build_calculator(calculator_config)
-    return atoms
 
 
 def _get_minimizer(name: str):

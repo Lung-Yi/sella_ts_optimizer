@@ -18,9 +18,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("xyz", type=Path, help="Initial structure in XYZ format.")
     parser.add_argument(
         "--mode",
-        choices=("ts", "min", "minimum"),
+        choices=("ts", "min", "minimum", "irc"),
         default="min",
-        help="Optimization target: ordinary local minimum or Sella transition state.",
+        help="Optimization target: local minimum, Sella transition state, or IRC path.",
     )
     parser.add_argument(
         "--calculator",
@@ -83,6 +83,18 @@ def build_parser() -> argparse.ArgumentParser:
         default="extra_large",
         help="MACE-OMOL model size/name for --calculator maceomol.",
     )
+    parser.add_argument(
+        "--irc-dx",
+        type=float,
+        default=0.1,
+        help="Sella IRC step size (dx) in mass-weighted coordinates, used only with --mode irc.",
+    )
+    parser.add_argument(
+        "--irc-direction",
+        choices=("both", "forward", "reverse"),
+        default="both",
+        help="Which IRC direction(s) to trace from the input TS geometry, used only with --mode irc.",
+    )
     return parser
 
 
@@ -100,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     mode = "min" if args.mode == "minimum" else args.mode
 
     if output_dir is None:
-        suffix = "sella_ts" if mode == "ts" else "min"
+        suffix = {"ts": "sella_ts", "irc": "irc"}.get(mode, "min")
         output_dir = xyz.with_suffix("").parent / f"{xyz.stem}_{suffix}_{args.calculator}"
     output_dir = output_dir.expanduser().resolve()
 
@@ -111,7 +123,8 @@ def main(argv: list[str] | None = None) -> int:
         threads=args.threads,
         qchem_method=args.qchem_method,
         qchem_basis=args.qchem_basis,
-        qchem_label=args.qchem_label or ("sella_ts" if mode == "ts" else "geometry_min"),
+        qchem_label=args.qchem_label
+        or {"ts": "sella_ts", "irc": "sella_irc"}.get(mode, "geometry_min"),
         mace_model=args.mace_model,
     )
 
@@ -125,6 +138,18 @@ def main(argv: list[str] | None = None) -> int:
             fmax=args.fmax,
             max_steps=args.max_steps,
         )
+    elif mode == "irc":
+        from .irc import run_irc
+
+        result = run_irc(
+            xyz_path=xyz,
+            calculator_config=config,
+            output_dir=output_dir,
+            fmax=args.fmax,
+            max_steps=args.max_steps,
+            dx=args.irc_dx,
+            direction=args.irc_direction,
+        )
     else:
         from .runner import run_geometry_optimization
 
@@ -137,35 +162,62 @@ def main(argv: list[str] | None = None) -> int:
             optimizer=args.optimizer,
         )
 
-    status = "converged" if result.converged else "stopped"
-    label = (
-        "Sella TS optimization"
-        if mode == "ts"
-        else f"{args.optimizer.upper()} geometry optimization"
-    )
-    final_label = "Final TS geometry" if mode == "ts" else "Final optimized geometry"
-    print(f"{label} {status} after {result.steps} saved step(s).")
-    print(f"{final_label}: {result.final_xyz}")
-    print(f"Optimization path: {result.optimized_xyz}")
-    print(f"Trajectory: {result.trajectory}")
+    if mode == "irc":
 
-    if args.frequencies:
-        from .frequencies import run_frequency_analysis
+        def _status(converged: bool | None) -> str:
+            return "skipped" if converged is None else ("converged" if converged else "stopped")
 
-        freq_result = run_frequency_analysis(
-            xyz_path=result.final_xyz,
-            calculator_config=config,
-            output_dir=output_dir,
-            delta=args.freq_delta,
-            temperature=args.temperature,
-            pressure=args.pressure,
+        print(
+            f"IRC forward branch {_status(result.forward_converged)}"
+            + (f" after {result.forward_steps} saved step(s)." if result.forward_steps is not None else ".")
         )
         print(
-            "Frequency analysis complete: "
-            f"{freq_result.imaginary_count} imaginary mode(s)."
+            f"IRC reverse branch {_status(result.reverse_converged)}"
+            + (f" after {result.reverse_steps} saved step(s)." if result.reverse_steps is not None else ".")
         )
-        print(f"Frequency summary: {freq_result.summary}")
-        print(f"Detailed output: {freq_result.detailed_output}")
+        print(f"Full IRC path: {result.full_path_xyz}")
+        if result.forward_xyz:
+            print(f"Forward path: {result.forward_xyz}")
+            print(f"Forward trajectory: {result.forward_trajectory}")
+        if result.reverse_xyz:
+            print(f"Reverse path: {result.reverse_xyz}")
+            print(f"Reverse trajectory: {result.reverse_trajectory}")
+    else:
+        status = "converged" if result.converged else "stopped"
+        label = (
+            "Sella TS optimization"
+            if mode == "ts"
+            else f"{args.optimizer.upper()} geometry optimization"
+        )
+        final_label = "Final TS geometry" if mode == "ts" else "Final optimized geometry"
+        print(f"{label} {status} after {result.steps} saved step(s).")
+        print(f"{final_label}: {result.final_xyz}")
+        print(f"Optimization path: {result.optimized_xyz}")
+        print(f"Trajectory: {result.trajectory}")
+
+    if args.frequencies:
+        if mode == "irc":
+            print(
+                "Warning: --frequencies is not supported with --mode irc "
+                "(IRC produces a path, not a single optimized geometry); skipping."
+            )
+        else:
+            from .frequencies import run_frequency_analysis
+
+            freq_result = run_frequency_analysis(
+                xyz_path=result.final_xyz,
+                calculator_config=config,
+                output_dir=output_dir,
+                delta=args.freq_delta,
+                temperature=args.temperature,
+                pressure=args.pressure,
+            )
+            print(
+                "Frequency analysis complete: "
+                f"{freq_result.imaginary_count} imaginary mode(s)."
+            )
+            print(f"Frequency summary: {freq_result.summary}")
+            print(f"Detailed output: {freq_result.detailed_output}")
 
     return 0
 
