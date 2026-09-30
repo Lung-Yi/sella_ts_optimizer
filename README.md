@@ -548,8 +548,24 @@ print([fragment.name for fragment in analysis.fragments])
 print(analysis.reference_axis.method, [anchor.label for anchor in analysis.anchors])
 ```
 
-The `run`, `resume`, `report`, `vasp` and `dft-collect` subcommands are not
-implemented yet.
+The surface part of the workflow (bulk relaxation with a cell filter, slab
+terminations from pymatgen ranked by MLIP surface energy, lateral supercells,
+fixed bottom layers, slab relaxation and symmetry-inequivalent ontop / bridge /
+hollow sites) is available from Python:
+
+```python
+from ase_structure_optimizer.adsorption import load_config, prepare_surfaces
+
+for surface in prepare_surfaces(load_config("config.yaml")):
+    print(surface.term_id, surface.energy_final, [site.site_id for site in surface.sites])
+```
+
+Miller indices refer to the axes of the input CIF when it is a conventional
+cell; a primitive input cell (e.g. `ase.build.bulk("Cu")`) is converted to the
+conventional cell first. Outputs go to `<molecule>_on_<solid>_<calculator>/`
+(`bulk/`, `terminations/<miller>_t<i>/`, `state.json`, `adsorption.log`,
+`results.db`). The `run`, `resume`, `report`, `vasp` and `dft-collect`
+subcommands are not implemented yet.
 
 ## Outputs
 

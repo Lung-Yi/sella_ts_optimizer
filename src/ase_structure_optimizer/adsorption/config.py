@@ -323,6 +323,7 @@ class SamplingConfig:
     contact_gap: Auto | float = _setting(AUTO, _auto_or(_float(0.0, strict_min=True)))
     clash_scale: float = _setting(0.7, _float(0.0, strict_min=True))
     seed: int = _setting(42, _int())
+    surface_depth: float = _setting(0.9, _float(0.0, strict_min=True))
 
 
 @dataclass(frozen=True)
@@ -672,6 +673,7 @@ sampling:
   contact_gap: auto            # anchor-to-nearest-surface-atom distance; auto: 0.9 * sum of vdW radii
   clash_scale: 0.7             # discard if any distance < clash_scale * sum of vdW radii
   seed: 42
+  surface_depth: 0.9           # atoms within this depth below the topmost atom count as surface atoms for site finding
 
 budget:
   wall_time_per_termination: 600   # s; 0 = unlimited
