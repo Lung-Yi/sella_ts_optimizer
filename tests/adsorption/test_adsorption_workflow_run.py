@@ -76,9 +76,33 @@ def test_full_run_outputs_and_c_down_adsorption(tmp_path: Path):
 
     rows = _rows(term_dir / "results.csv")
     assert len(rows) == termination.n_relaxed
-    energies = [float(row["eads_screen"]) for row in rows]
+    energies = [float(row["eads"]) for row in rows]
     assert energies == sorted(energies)
-    assert rows[0]["config_id"] == termination.best_config_id
+    for row in rows:
+        assert row["class"] in ("chemisorbed", "physisorbed", "dissociated", "desorbed")
+        assert abs(float(row["eads"]) - float(row["eads_screen"])) < 1e-6  # EMT has no dtype
+        assert (term_dir / "relax" / f"{row['config_id']}_final.extxyz").is_file()
+
+    # M4 outputs: unique configurations, summary, scan, figures.
+    unique = _rows(term_dir / "unique.csv")
+    assert len(unique) == termination.n_unique >= 1
+    assert unique[0]["config_id"] == termination.best_unique_id
+    assert float(unique[0]["eads"]) == pytest.approx(termination.best_eads)
+    assert sum(float(row["boltzmann_weight"]) for row in unique) == pytest.approx(1.0, abs=1e-4)
+    assert sum(int(row["n_duplicates"]) for row in unique) + len(unique) == len(rows)
+    summary = _rows(run_dir / "summary.csv")
+    assert [row["config_id"] for row in summary] == [row["config_id"] for row in unique]
+    scan = _rows(term_dir / "approach_scan.csv")
+    assert len(scan) == 23 and (term_dir / "approach_scan.extxyz").is_file()
+    assert len(read(term_dir / "approach_scan.extxyz", index=":")) == 23
+    assert read(term_dir / "approach_scan.extxyz", index=0).get_potential_energy() == pytest.approx(
+        float(scan[0]["energy_final"])
+    )  # scan energies are stored with the structures
+    figures = {path.name for path in (run_dir / "figures").glob("*.png")}
+    for name in ("eads_ranking_111_t0.png", "eads_vs_tilt_111_t0.png", "eads_site_anchor_heatmap_111_t0.png"):
+        assert name in figures
+    assert 1 <= len([name for name in figures if name.startswith("summary_111_t0_")]) <= 3
+    assert result.summary_csv == run_dir.resolve() / "summary.csv"
 
     slab = read(term_dir / "slab_opt_final.extxyz")
     n_slab = len(slab)
@@ -99,8 +123,9 @@ def test_full_run_outputs_and_c_down_adsorption(tmp_path: Path):
     with connect(run_dir / "results.db") as database:
         assert database.count(kind="adsorbate") == termination.n_relaxed
         assert database.count(kind="molecule") == 1
-        row = database.get(name=f"111_t0/{termination.best_config_id}")
-        assert row.eads_screen == pytest.approx(termination.best_eads_screen)
+        row = database.get(name=f"111_t0/{termination.best_unique_id}")
+        assert row.eads == pytest.approx(termination.best_eads)
+        assert row.adsorption_class == termination.best_class
 
 
 def test_interrupted_run_resumes_to_the_same_results(tmp_path: Path, monkeypatch):
@@ -130,8 +155,9 @@ def test_interrupted_run_resumes_to_the_same_results(tmp_path: Path, monkeypatch
     actual = {row["config_id"]: row for row in _rows(resumed.terminations[0].results_csv)}
     assert expected.keys() == actual.keys()
     for cid, row in expected.items():
-        assert float(actual[cid]["eads_screen"]) == pytest.approx(float(row["eads_screen"]), abs=1e-8)
-        assert actual[cid]["contact"] == row["contact"]
+        assert float(actual[cid]["eads"]) == pytest.approx(float(row["eads"]), abs=1e-8)
+        assert actual[cid]["contact"] == row["contact"] and actual[cid]["class"] == row["class"]
+    assert _rows(reference.summary_csv) and len(_rows(resumed.summary_csv)) == len(_rows(reference.summary_csv))
     log = (run_dir / "adsorption.log").read_text()
     assert "restarting interrupted items" in log
     # A finished run resumes instantly without new calculations.
@@ -209,7 +235,7 @@ def test_cli_run_quick_form_and_resume(tmp_path: Path, capsys):
     )
     assert code == 0
     output = capsys.readouterr().out
-    assert "111_t0" in output and "E_ads(screen)" in output
+    assert "111_t0" in output and "most stable" in output and "Summary:" in output
     resolved = (run_dir / "config.resolved.yaml").read_text()
     assert "name: emt" in resolved and "wall_time_per_termination: 0.0" in resolved
 

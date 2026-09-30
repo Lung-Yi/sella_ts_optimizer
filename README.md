@@ -600,10 +600,36 @@ How the sampling works:
 - Failed configurations (exceptions, NaN, atoms closer than 0.5 Å, molecule
   more than 10 Å from the surface) are recorded with a reason and skipped.
 
-`results.csv` currently reports `eads_screen`, the adsorption energy with the
-screening dtype; final-dtype energies, classification and angles follow in
-the analysis step. The `report`, `vasp` and `dft-collect` subcommands are not
-implemented yet.
+Analysis of the fully relaxed configurations (per termination):
+
+- Final energies: a single point with `calculator.dtype_final` for every
+  relaxed configuration; `E_ads = E(slab+mol) - E(slab) - E(mol)` uses only
+  final-dtype energies. `eads_screen` keeps the screening-dtype value.
+- Class, in this order: `dissociated` (the molecule's bonds changed; with a
+  metal center this is judged per ligand: bonds inside ligands unchanged and
+  every ligand still bonded to its metal, so a hapticity change such as
+  eta5 -> eta3 Cp is not a dissociation), `desorbed` (farther than
+  `desorbed_distance` from the slab), `chemisorbed` (at least one contact
+  atom), `physisorbed`. `surface_distorted` flags free slab atoms moved by
+  more than 1 Å.
+- Contact label: fragments touching the surface (`CO_1+H`, `C5H5`, `Mo` for
+  the metal atom), `none` without contact.
+- Angles: tilt θ between the reference axis u and the surface normal (0° = u
+  points away from the surface; axes without head/tail fold into 0-90°),
+  azimuth φ of the second principal axis against cell vector a; `height` is
+  the molecule center (metal, else center of mass) above the topmost slab atom.
+- `results.csv`: all relaxed configurations; `unique.csv`: de-duplicated
+  (same class and contact, |ΔE_ads| < `dedup_energy_tol`, RMSD up to lattice
+  translations < `dedup_rmsd_tol`) with Boltzmann weights at `temperature`;
+  `summary.csv`: unique configurations of all terminations.
+- Rigid approach scan (`approach_scan.csv/.extxyz`): the intact molecule in
+  the initial orientation of the most stable intact configuration, lowered
+  over `scan_heights` (clearance of its lowest atom above the surface).
+- Figures in `figures/`: `eads_ranking_<term>.png`, `eads_vs_tilt_<term>.png`,
+  `eads_site_anchor_heatmap_<term>.png`, `summary_<term>_<config>.png`
+  (top 3) and `termination_comparison.png`.
+
+The `report`, `vasp` and `dft-collect` subcommands are not implemented yet.
 
 ## Outputs
 

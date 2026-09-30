@@ -5,6 +5,7 @@ when needed; this subpackage is never imported by ``ase_structure_optimizer``
 itself.
 """
 
+from .analysis import boltzmann_weights, classify, deduplicate, intact_check
 from .config import (
     AdsorptionConfig,
     ConfigError,
@@ -37,6 +38,10 @@ __all__ = [
     "SurfaceModel",
     "TerminationResult",
     "analyze_molecule",
+    "boltzmann_weights",
+    "classify",
+    "deduplicate",
+    "intact_check",
     "check_calculator_support",
     "config_from_dict",
     "config_to_dict",

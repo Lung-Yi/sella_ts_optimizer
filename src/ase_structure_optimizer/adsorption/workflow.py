@@ -25,7 +25,20 @@ from ase import Atoms
 from ase.io import read, write
 
 from ..structures import read_structure
-from .analysis import contact_label, facing_label
+from .analysis import (
+    adsorption_height,
+    azimuth_angle,
+    azimuth_sign_atom,
+    boltzmann_weights,
+    classify,
+    contact_label,
+    deduplicate,
+    facing_label,
+    molecule_part,
+    molecule_tilt,
+    surface_displacement,
+)
+from .analysis import SURFACE_DISTORTION_LIMIT
 from .config import AUTO, AdsorptionConfig, ConfigError, check_calculator_support, dump_config, load_config
 from .molecule import MoleculeAnalysis, analyze_molecule, molecule_in_box
 from .relax import (
@@ -691,6 +704,13 @@ class TerminationResult:
     best_eads_screen: float | None
     budget_used: float
     warnings: tuple[str, ...] = ()
+    unique_csv: Path | None = None
+    n_unique: int = 0
+    best_unique_id: str | None = None
+    best_eads: float | None = None
+    best_class: str | None = None
+    class_counts: tuple[tuple[str, int], ...] = ()
+    scan_csv: Path | None = None
 
 
 def stage_sampling(context: RunContext, surface: SurfaceModel, gas: GasReference) -> TerminationResult:
@@ -1061,6 +1081,318 @@ def _termination_result(
 
 
 # ---------------------------------------------------------------------------
+# Stage: analysis (final single points, classification, angles, scan)
+# ---------------------------------------------------------------------------
+
+ANALYSIS_COLUMNS = (
+    "config_id",
+    "class",
+    "eads",
+    "eads_screen",
+    "contact",
+    "tilt",
+    "azimuth",
+    "height",
+    "surface_distorted",
+    "max_surface_displacement",
+    "energy_final",
+    "energy_screen",
+    "prescreen_energy",
+    "converged",
+    "steps",
+    "elapsed",
+    "site_id",
+    "site_kind",
+    "anchor",
+    "spin",
+    "source",
+    "initial_tilt",
+    "class_reason",
+    "status",
+    "reason",
+)
+UNIQUE_COLUMNS = ("config_id", "class", "eads", "boltzmann_weight", "n_duplicates", "duplicates") + tuple(
+    column for column in ANALYSIS_COLUMNS if column not in ("config_id", "class", "eads", "status", "reason")
+)
+SUMMARY_COLUMNS = ("term_id",) + UNIQUE_COLUMNS
+SCAN_COLUMNS = ("clearance", "center_height", "energy_final", "eads")
+
+
+def stage_analysis(
+    context: RunContext, surface: SurfaceModel, gas: GasReference, sampled: TerminationResult
+) -> TerminationResult:
+    """Final-dtype single points and analysis of the fully relaxed configurations.
+
+    ``E_ads = E(slab+mol) - E(slab) - E(mol)`` with all three energies from
+    the final-dtype calculator. Writes ``results.csv`` (all relaxed
+    configurations) and ``unique.csv`` (de-duplicated, with Boltzmann
+    weights) and, if enabled, the rigid approach scan.
+    """
+
+    config = context.config
+    state = context.state
+    term = surface.term_id
+    directory = context.run_dir / "terminations" / term
+    relax_dir = directory / "relax"
+    slab = surface.slab()
+    n_slab = len(slab)
+    candidates = {c.config_id: c for c in _candidates(context, surface, slab, gas)}
+    relax_records = state.items.get(f"{term}/relax", {})
+    prescreen_records = state.items.get(f"{term}/prescreen", {})
+    final_stage = f"{term}/final"
+    budget_key = f"sampling/{term}"
+
+    for cid, record in relax_records.items():
+        if record.get("status") != "done" or state.item_status(final_stage, cid) in ("done", "failed"):
+            continue
+        started = time.perf_counter()
+        state.set_item(final_stage, cid, "running")
+        relaxed = read(relax_dir / f"{cid}.extxyz", index=-1)
+        relaxed.set_constraint(slab.constraints)
+        try:
+            final = single_point(relaxed, context.calculators.final)
+        except Exception as exc:  # noqa: BLE001 - record and continue
+            state.set_item(final_stage, cid, "failed", reason=f"{type(exc).__name__}: {exc}")
+        else:
+            write(relax_dir / f"{cid}_final.extxyz", final, format="extxyz")
+            state.set_item(final_stage, cid, "done", energy_final=float(final.get_potential_energy()))
+        state.add_elapsed(budget_key, time.perf_counter() - started)
+
+    props = config.molecule_props
+    settings = config.analysis
+    sign_atom = azimuth_sign_atom(gas.molecule, gas.analysis)
+    rows: list[dict[str, Any]] = []
+    positions: dict[str, np.ndarray] = {}
+    for cid, record in relax_records.items():
+        if record.get("status") not in ("done", "failed"):
+            continue
+        row: dict[str, Any] = {**candidates[cid].metadata(), **record}
+        row["prescreen_energy"] = prescreen_records.get(cid, {}).get("energy")
+        final_record = state.item_record(final_stage, cid)
+        if record.get("status") != "done" or final_record.get("status") != "done":
+            row["status"] = "failed"
+            row["reason"] = record.get("reason") or final_record.get("reason", "")
+            rows.append(row)
+            continue
+        final = read(relax_dir / f"{cid}_final.extxyz")
+        molecule = molecule_part(final, n_slab)
+        category, label, why = classify(
+            final,
+            n_slab,
+            gas.analysis,
+            props.bond_scale,
+            settings.contact_scale,
+            settings.desorbed_distance,
+            props.bond_overrides,
+        )
+        displacement = surface_displacement(final, n_slab, slab)
+        tilt = molecule_tilt(molecule, gas.analysis)
+        azimuth = azimuth_angle(molecule, gas.analysis, sign_atom, final.cell.array)
+        row.update(
+            {
+                "energy_final": final_record["energy_final"],
+                "eads": final_record["energy_final"] - surface.energy_final - gas.energy_final,
+                "class": category,
+                "class_reason": why,
+                "contact": label,
+                "tilt": None if tilt is None else round(tilt, 2),
+                "azimuth": None if azimuth is None else round(azimuth, 2),
+                "height": round(adsorption_height(final, n_slab, gas.analysis), 3),
+                "max_surface_displacement": round(displacement, 3),
+                "surface_distorted": displacement > SURFACE_DISTORTION_LIMIT,
+            }
+        )
+        positions[cid] = molecule.positions
+        rows.append(row)
+        final.info.update(candidates[cid].metadata())
+        _db_upsert(
+            context,
+            final,
+            kind="adsorbate",
+            name=f"{term}/{cid}",
+            termination=term,
+            config_id=cid,
+            site_id=row["site_id"],
+            anchor=row["anchor"],
+            status="done",
+            energy_final=row["energy_final"],
+            eads=row["eads"],
+            eads_screen=row.get("eads_screen"),
+            adsorption_class=category,
+            contact=label,
+            tilt=row["tilt"],
+            azimuth=row["azimuth"],
+            height=row["height"],
+            surface_distorted=row["surface_distorted"],
+            converged=row.get("converged"),
+            steps=row.get("steps"),
+            elapsed=row.get("elapsed"),
+        )
+
+    done = [row for row in rows if row.get("status") == "done"]
+    done.sort(key=lambda row: row["eads"])
+    failed = [row for row in rows if row.get("status") != "done"]
+    _write_csv(directory / "results.csv", ANALYSIS_COLUMNS, done + failed)
+
+    unique = deduplicate(done, positions, slab.cell.array, settings.dedup_energy_tol, settings.dedup_rmsd_tol)
+    for row, weight in zip(unique, boltzmann_weights([row["eads"] for row in unique], settings.temperature)):
+        row["boltzmann_weight"] = round(weight, 6)
+        row["duplicates"] = " ".join(row["duplicates"])
+    _write_csv(directory / "unique.csv", UNIQUE_COLUMNS, unique)
+
+    counts: dict[str, int] = {}
+    for row in unique:
+        counts[row["class"]] = counts.get(row["class"], 0) + 1
+    best = unique[0] if unique else None
+    if best is not None:
+        logger.info(
+            "%s: %d unique configuration(s) (%s); most stable %s: E_ads %.3f eV, %s, contact %s",
+            term,
+            len(unique),
+            ", ".join(f"{count} {name}" for name, count in counts.items()),
+            best["config_id"],
+            best["eads"],
+            best["class"],
+            best["contact"],
+        )
+    distorted = [row["config_id"] for row in done if row["surface_distorted"]]
+    if distorted:
+        logger.warning("%s: surface distorted (> %.1f Å) in %s", term, SURFACE_DISTORTION_LIMIT, ", ".join(distorted))
+
+    scan_csv = None
+    if settings.approach_scan and unique:
+        scan_csv = _approach_scan(context, surface, gas, candidates, unique, slab)
+
+    return dataclasses.replace(
+        sampled,
+        unique_csv=directory / "unique.csv",
+        n_unique=len(unique),
+        best_unique_id=best["config_id"] if best else None,
+        best_eads=best["eads"] if best else None,
+        best_class=best["class"] if best else None,
+        class_counts=tuple(counts.items()),
+        scan_csv=scan_csv,
+    )
+
+
+def scan_target(unique: list[dict]) -> dict:
+    """Configuration used for the rigid approach scan.
+
+    The most stable intact (chemisorbed or physisorbed) configuration, since
+    the scan places the intact gas-phase molecule; the most stable overall
+    if there is none.
+    """
+
+    intact = [row for row in unique if row["class"] in ("chemisorbed", "physisorbed")]
+    return (intact or unique)[0]
+
+
+def _approach_scan(
+    context: RunContext,
+    surface: SurfaceModel,
+    gas: GasReference,
+    candidates: dict[str, Candidate],
+    unique: list[dict],
+    slab: Atoms,
+) -> Path:
+    """Rigid scan of the gas-phase molecule approaching along z (final-dtype single points).
+
+    The molecule keeps the initial orientation and site of the target
+    configuration; the scan coordinate is the vertical clearance between its
+    lowest atom and the topmost slab atom. Energies are stored in
+    ``approach_scan.extxyz`` and ``approach_scan.csv``.
+    """
+
+    term = surface.term_id
+    directory = context.run_dir / "terminations" / term
+    scan_file = directory / "approach_scan.csv"
+    stage = f"scan/{term}"
+    if context.state.stage_status(stage) == "done" and scan_file.is_file():
+        return scan_file
+
+    started = time.perf_counter()
+    target = scan_target(unique)
+    candidate = candidates[target["config_id"]]
+    start, stop, step = context.config.analysis.scan_heights
+    clearances = np.arange(start, stop + 0.5 * step, step)
+    top = slab.positions[:, 2].max()
+    base = candidate.molecule_positions.copy()
+    base[:, 2] -= base[:, 2].min() - top
+    frames, rows = [], []
+    for clearance in clearances:
+        placed = base.copy()
+        placed[:, 2] += clearance
+        system = slab.copy() + Atoms(gas.molecule.get_chemical_symbols(), positions=placed)
+        system.cell = slab.cell
+        system.pbc = True
+        result = single_point(system, context.calculators.final)
+        energy = float(result.get_potential_energy())
+        result.info.update({"config_id": target["config_id"], "clearance": round(float(clearance), 4)})
+        frames.append(result)
+        rows.append(
+            {
+                "clearance": round(float(clearance), 4),
+                "center_height": round(adsorption_height(result, len(slab), gas.analysis), 4),
+                "energy_final": energy,
+                "eads": energy - surface.energy_final - gas.energy_final,
+            }
+        )
+    write(directory / "approach_scan.extxyz", frames, format="extxyz")
+    _write_csv(scan_file, SCAN_COLUMNS, rows)
+    (directory / "approach_scan.json").write_text(
+        json.dumps({"config_id": target["config_id"], "relaxed_eads": target["eads"], "class": target["class"]}),
+        encoding="utf-8",
+    )
+    context.state.add_elapsed(f"sampling/{term}", time.perf_counter() - started)
+    context.state.set_stage(stage, "done")
+    best_row = min(rows, key=lambda row: row["eads"])
+    logger.info(
+        "%s: approach scan of %s over %d heights; minimum E_ads %.3f eV at %.2f Å clearance (relaxed %.3f eV)",
+        term,
+        target["config_id"],
+        len(rows),
+        best_row["eads"],
+        best_row["clearance"],
+        target["eads"],
+    )
+    return scan_file
+
+
+def write_summary(context: RunContext, results: list[TerminationResult]) -> Path:
+    """``summary.csv``: unique configurations of all terminations, sorted by E_ads."""
+
+    rows = []
+    for result in results:
+        if result.unique_csv is None or not result.unique_csv.is_file():
+            continue
+        with result.unique_csv.open(encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                rows.append({"term_id": result.term_id, **row})
+    rows.sort(key=lambda row: float(row["eads"]))
+    path = context.run_dir / "summary.csv"
+    _write_csv(path, SUMMARY_COLUMNS, rows)
+    return path
+
+
+def make_figures(context: RunContext, surfaces: list[SurfaceModel], results: list[TerminationResult]) -> Path | None:
+    """Static analysis figures in ``figures/`` (skipped with a warning without matplotlib)."""
+
+    try:
+        from .plotting import plot_run
+    except ImportError as exc:
+        logger.warning("figures skipped: %s", exc)
+        return None
+    directory = context.run_dir / "figures"
+    try:
+        written = plot_run(context.run_dir, directory, surfaces, results, context.config)
+    except Exception as exc:  # noqa: BLE001 - figures must not lose finished results
+        logger.warning("figure generation failed: %s: %s", type(exc).__name__, exc)
+        return None
+    logger.info("%d figure(s) written to %s", len(written), directory)
+    return directory
+
+
+# ---------------------------------------------------------------------------
 # Public entry point for the surface part of the workflow
 # ---------------------------------------------------------------------------
 
@@ -1097,13 +1429,18 @@ class AdsorptionResult:
     database: Path
     molecule_energy: float
     terminations: tuple[TerminationResult, ...]
+    summary_csv: Path | None = None
+    figures_dir: Path | None = None
 
     @property
     def best(self) -> TerminationResult | None:
-        """Termination holding the lowest screening E_ads."""
+        """Termination holding the lowest final E_ads (screening E_ads if not analyzed)."""
 
-        ranked = [t for t in self.terminations if t.best_eads_screen is not None]
-        return min(ranked, key=lambda t: t.best_eads_screen) if ranked else None
+        def energy(t: TerminationResult) -> float | None:
+            return t.best_eads if t.best_eads is not None else t.best_eads_screen
+
+        ranked = [t for t in self.terminations if energy(t) is not None]
+        return min(ranked, key=energy) if ranked else None
 
 
 def run_adsorption_workflow(config: AdsorptionConfig) -> AdsorptionResult:
@@ -1131,18 +1468,24 @@ def _run(run_dir: Path, config: AdsorptionConfig | None) -> AdsorptionResult:
         surfaces = stage_surfaces(context, molecule)
         results = []
         for surface in surfaces:
-            results.append(stage_sampling(context, surface, gas))
+            sampled = stage_sampling(context, surface, gas)
+            results.append(stage_analysis(context, surface, gas, sampled))
         context.state.set_stage("sampling", "done")
+        summary_csv = write_summary(context, results)
+        figures_dir = make_figures(context, surfaces, results)
         for result in results:
             logger.info(
-                "%s: %d candidates, %d prescreened, %d relaxed (%d failed); best %s E_ads(screen) %s; budget used %.0f s",
+                "%s: %d candidates, %d prescreened, %d relaxed (%d failed), %d unique; most stable %s: E_ads %s (%s); "
+                "budget used %.0f s",
                 result.term_id,
                 result.n_candidates,
                 result.n_prescreened,
                 result.n_relaxed,
                 result.n_failed,
-                result.best_config_id,
-                f"{result.best_eads_screen:.3f} eV" if result.best_eads_screen is not None else "n/a",
+                result.n_unique,
+                result.best_unique_id,
+                f"{result.best_eads:.3f} eV" if result.best_eads is not None else "n/a",
+                result.best_class,
                 result.budget_used,
             )
         logger.info("workflow finished in %.1f s (this session)", time.perf_counter() - started)
@@ -1153,4 +1496,6 @@ def _run(run_dir: Path, config: AdsorptionConfig | None) -> AdsorptionResult:
             database=context.run_dir / RESULTS_DB,
             molecule_energy=gas.energy_final,
             terminations=tuple(results),
+            summary_csv=summary_csv,
+            figures_dir=figures_dir,
         )

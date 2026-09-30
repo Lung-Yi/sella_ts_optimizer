@@ -163,16 +163,20 @@ def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     print(f"\nRun directory: {result.run_dir}")
     for termination in result.terminations:
         best = (
-            f"best {termination.best_config_id}, E_ads(screen) {termination.best_eads_screen:.3f} eV"
-            if termination.best_eads_screen is not None
+            f"most stable {termination.best_unique_id}, E_ads {termination.best_eads:.3f} eV ({termination.best_class})"
+            if termination.best_eads is not None
             else "no successful relaxation"
         )
         print(
-            f"  {termination.term_id}: {termination.n_relaxed} relaxed, {termination.n_failed} failed; {best}; "
-            f"{termination.results_csv}"
+            f"  {termination.term_id}: {termination.n_relaxed} relaxed, {termination.n_failed} failed, "
+            f"{termination.n_unique} unique; {best}; {termination.unique_csv}"
         )
         for warning in termination.warnings:
             print(f"    warning: {warning}")
+    if result.summary_csv is not None:
+        print(f"Summary: {result.summary_csv}")
+    if result.figures_dir is not None:
+        print(f"Figures: {result.figures_dir}")
     return 0
 
 
