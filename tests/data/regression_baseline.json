@@ -1,0 +1,2285 @@
+{
+ "_meta": {
+  "recorded_at_commit": "55b56da00fb561fff2288adc41099bf8965896a7"
+ },
+ "cli_irc": {
+  "dirs": {
+   "cu5_ts_irc_emt": [
+    "sella_irc_forward.traj",
+    "sella_irc_forward.xyz",
+    "sella_irc_path.xyz",
+    "sella_irc_reverse.traj",
+    "sella_irc_reverse.xyz"
+   ]
+  },
+  "stdout": [
+   "IRC forward branch converged after 135 saved step(s).",
+   "IRC reverse branch converged after 135 saved step(s).",
+   "Full IRC path: <WORKDIR>/cu5_ts_irc_emt/sella_irc_path.xyz",
+   "Forward path: <WORKDIR>/cu5_ts_irc_emt/sella_irc_forward.xyz",
+   "Forward trajectory: <WORKDIR>/cu5_ts_irc_emt/sella_irc_forward.traj",
+   "Reverse path: <WORKDIR>/cu5_ts_irc_emt/sella_irc_reverse.xyz",
+   "Reverse trajectory: <WORKDIR>/cu5_ts_irc_emt/sella_irc_reverse.traj"
+  ],
+  "xyz": {
+   "cu5_ts_irc_emt/sella_irc_path.xyz": {
+    "comment_line": "",
+    "final_positions": [
+     [
+      0.85542406,
+      0.50232654,
+      -0.51970376
+     ],
+     [
+      2.80550954,
+      0.21832493,
+      0.9431832
+     ],
+     [
+      1.55855671,
+      2.33305212,
+      0.95595734
+     ],
+     [
+      0.58896747,
+      0.33082423,
+      1.86172473
+     ],
+     [
+      2.89154222,
+      1.70547218,
+      -0.9411615
+     ]
+    ],
+    "frames": 269,
+    "pbc": [
+     false,
+     false,
+     false
+    ],
+    "symbols": [
+     "Cu",
+     "Cu",
+     "Cu",
+     "Cu",
+     "Cu"
+    ]
+   }
+  }
+ },
+ "cli_irc_forward": {
+  "dirs": {
+   "cu5_ts_irc_emt": [
+    "sella_irc_forward.traj",
+    "sella_irc_forward.xyz",
+    "sella_irc_path.xyz"
+   ]
+  },
+  "stdout": [
+   "IRC forward branch stopped after 201 saved step(s).",
+   "IRC reverse branch skipped.",
+   "Full IRC path: <WORKDIR>/cu5_ts_irc_emt/sella_irc_path.xyz",
+   "Forward path: <WORKDIR>/cu5_ts_irc_emt/sella_irc_forward.xyz",
+   "Forward trajectory: <WORKDIR>/cu5_ts_irc_emt/sella_irc_forward.traj"
+  ],
+  "xyz": {
+   "cu5_ts_irc_emt/sella_irc_path.xyz": {
+    "comment_line": "",
+    "final_positions": [
+     [
+      0.7436952,
+      0.43613096,
+      -0.4677996
+     ],
+     [
+      2.75213665,
+      0.12880757,
+      0.80058636
+     ],
+     [
+      1.45363559,
+      2.33095069,
+      0.81389089
+     ],
+     [
+      0.67148776,
+      0.37891467,
+      1.95521059
+     ],
+     [
+      3.0790448,
+      1.81519611,
+      -0.80188824
+     ]
+    ],
+    "frames": 201,
+    "pbc": [
+     false,
+     false,
+     false
+    ],
+    "symbols": [
+     "Cu",
+     "Cu",
+     "Cu",
+     "Cu",
+     "Cu"
+    ]
+   }
+  }
+ },
+ "cli_irc_freq_warning": {
+  "dirs": {
+   "cu5_ts_irc_emt": [
+    "sella_irc_path.xyz",
+    "sella_irc_reverse.traj",
+    "sella_irc_reverse.xyz"
+   ]
+  },
+  "stdout": [
+   "IRC forward branch skipped.",
+   "IRC reverse branch stopped after 11 saved step(s).",
+   "Full IRC path: <WORKDIR>/cu5_ts_irc_emt/sella_irc_path.xyz",
+   "Reverse path: <WORKDIR>/cu5_ts_irc_emt/sella_irc_reverse.xyz",
+   "Reverse trajectory: <WORKDIR>/cu5_ts_irc_emt/sella_irc_reverse.traj",
+   "Warning: --frequencies is not supported with --mode irc (IRC produces a path, not a single optimized geometry); skipping."
+  ],
+  "xyz": {
+   "cu5_ts_irc_emt/sella_irc_path.xyz": {
+    "comment_line": "",
+    "final_positions": [
+     [
+      0.26320075,
+      0.15131046,
+      -0.21391551
+     ],
+     [
+      2.59818112,
+      0.07293359,
+      0.36517944
+     ],
+     [
+      1.32789141,
+      2.22713091,
+      0.37816894
+     ],
+     [
+      0.93216929,
+      0.5321011,
+      2.04034791
+     ],
+     [
+      3.57855744,
+      2.10652395,
+      -0.26978077
+     ]
+    ],
+    "frames": 11,
+    "pbc": [
+     false,
+     false,
+     false
+    ],
+    "symbols": [
+     "Cu",
+     "Cu",
+     "Cu",
+     "Cu",
+     "Cu"
+    ]
+   }
+  }
+ },
+ "cli_min_default": {
+  "dirs": {
+   "water_min_emt": [
+    "geometry_min.traj",
+    "geometry_min_optimized.xyz",
+    "geometry_min_path.xyz"
+   ]
+  },
+  "stdout": [
+   "BFGS geometry optimization converged after 6 saved step(s).",
+   "Final optimized geometry: <WORKDIR>/water_min_emt/geometry_min_optimized.xyz",
+   "Optimization path: <WORKDIR>/water_min_emt/geometry_min_path.xyz",
+   "Trajectory: <WORKDIR>/water_min_emt/geometry_min.traj"
+  ],
+  "xyz": {
+   "water_min_emt/geometry_min_optimized.xyz": {
+    "comment_line": "",
+    "final_positions": [
+     [
+      -0.00334663,
+      -0.0035869,
+      0.20171269
+     ],
+     [
+      -0.0001179,
+      0.82375096,
+      -0.52163897
+     ],
+     [
+      0.05346453,
+      -0.85716406,
+      -0.48807372
+     ]
+    ],
+    "frames": 1,
+    "pbc": [
+     false,
+     false,
+     false
+    ],
+    "symbols": [
+     "O",
+     "H",
+     "H"
+    ]
+   }
+  }
+ },
+ "cli_min_fire": {
+  "dirs": {
+   "water_min_emt": [
+    "geometry_min.traj",
+    "geometry_min_optimized.xyz",
+    "geometry_min_path.xyz"
+   ]
+  },
+  "stdout": [
+   "FIRE geometry optimization converged after 25 saved step(s).",
+   "Final optimized geometry: <WORKDIR>/water_min_emt/geometry_min_optimized.xyz",
+   "Optimization path: <WORKDIR>/water_min_emt/geometry_min_path.xyz",
+   "Trajectory: <WORKDIR>/water_min_emt/geometry_min.traj"
+  ],
+  "xyz": {
+   "water_min_emt/geometry_min_optimized.xyz": {
+    "comment_line": "",
+    "final_positions": [
+     [
+      -0.00321774,
+      -0.00371834,
+      0.19873769
+     ],
+     [
+      -0.00029644,
+      0.82757434,
+      -0.52036246
+     ],
+     [
+      0.05351417,
+      -0.86085601,
+      -0.48637523
+     ]
+    ],
+    "frames": 1,
+    "pbc": [
+     false,
+     false,
+     false
+    ],
+    "symbols": [
+     "O",
+     "H",
+     "H"
+    ]
+   }
+  }
+ },
+ "cli_min_outdir": {
+  "dirs": {
+   "custom_out": [
+    "geometry_min.traj",
+    "geometry_min_optimized.xyz",
+    "geometry_min_path.xyz"
+   ]
+  },
+  "stdout": [
+   "BFGS geometry optimization converged after 6 saved step(s).",
+   "Final optimized geometry: <WORKDIR>/custom_out/geometry_min_optimized.xyz",
+   "Optimization path: <WORKDIR>/custom_out/geometry_min_path.xyz",
+   "Trajectory: <WORKDIR>/custom_out/geometry_min.traj"
+  ],
+  "xyz": {
+   "custom_out/geometry_min_optimized.xyz": {
+    "comment_line": "",
+    "final_positions": [
+     [
+      -0.00334663,
+      -0.0035869,
+      0.20171269
+     ],
+     [
+      -0.0001179,
+      0.82375096,
+      -0.52163897
+     ],
+     [
+      0.05346453,
+      -0.85716406,
+      -0.48807372
+     ]
+    ],
+    "frames": 1,
+    "pbc": [
+     false,
+     false,
+     false
+    ],
+    "symbols": [
+     "O",
+     "H",
+     "H"
+    ]
+   }
+  }
+ },
+ "cli_ts": {
+  "dirs": {
+   "cu5_guess_sella_ts_emt": [
+    "sella_ts.traj",
+    "sella_ts_optimized.xyz",
+    "sella_ts_path.xyz"
+   ]
+  },
+  "stdout": [
+   "Sella TS optimization converged after 27 saved step(s).",
+   "Final TS geometry: <WORKDIR>/cu5_guess_sella_ts_emt/sella_ts_optimized.xyz",
+   "Optimization path: <WORKDIR>/cu5_guess_sella_ts_emt/sella_ts_path.xyz",
+   "Trajectory: <WORKDIR>/cu5_guess_sella_ts_emt/sella_ts.traj"
+  ],
+  "xyz": {
+   "cu5_guess_sella_ts_emt/sella_ts_optimized.xyz": {
+    "comment_line": "",
+    "final_positions": [
+     [
+      0.26320075,
+      0.15131046,
+      -0.21391551
+     ],
+     [
+      2.59818112,
+      0.07293359,
+      0.36517944
+     ],
+     [
+      1.32789141,
+      2.22713091,
+      0.37816894
+     ],
+     [
+      0.93216929,
+      0.5321011,
+      2.04034791
+     ],
+     [
+      3.57855744,
+      2.10652395,
+      -0.26978077
+     ]
+    ],
+    "frames": 1,
+    "pbc": [
+     false,
+     false,
+     false
+    ],
+    "symbols": [
+     "Cu",
+     "Cu",
+     "Cu",
+     "Cu",
+     "Cu"
+    ]
+   }
+  }
+ },
+ "cli_ts_freq": {
+  "dirs": {
+   "cu5_guess_sella_ts_emt": [
+    "frequencies_emt_summary.txt",
+    "sella_ts.traj",
+    "sella_ts_optimized.xyz",
+    "sella_ts_path.xyz",
+    "vib_emt/cache.0x+.json",
+    "vib_emt/cache.0x-.json",
+    "vib_emt/cache.0y+.json",
+    "vib_emt/cache.0y-.json",
+    "vib_emt/cache.0z+.json",
+    "vib_emt/cache.0z-.json",
+    "vib_emt/cache.1x+.json",
+    "vib_emt/cache.1x-.json",
+    "vib_emt/cache.1y+.json",
+    "vib_emt/cache.1y-.json",
+    "vib_emt/cache.1z+.json",
+    "vib_emt/cache.1z-.json",
+    "vib_emt/cache.2x+.json",
+    "vib_emt/cache.2x-.json",
+    "vib_emt/cache.2y+.json",
+    "vib_emt/cache.2y-.json",
+    "vib_emt/cache.2z+.json",
+    "vib_emt/cache.2z-.json",
+    "vib_emt/cache.3x+.json",
+    "vib_emt/cache.3x-.json",
+    "vib_emt/cache.3y+.json",
+    "vib_emt/cache.3y-.json",
+    "vib_emt/cache.3z+.json",
+    "vib_emt/cache.3z-.json",
+    "vib_emt/cache.4x+.json",
+    "vib_emt/cache.4x-.json",
+    "vib_emt/cache.4y+.json",
+    "vib_emt/cache.4y-.json",
+    "vib_emt/cache.4z+.json",
+    "vib_emt/cache.4z-.json",
+    "vib_emt/cache.eq.json",
+    "vibrations_emt_geometric.txt"
+   ]
+  },
+  "stdout": [
+   "Sella TS optimization converged after 27 saved step(s).",
+   "Final TS geometry: <WORKDIR>/cu5_guess_sella_ts_emt/sella_ts_optimized.xyz",
+   "Optimization path: <WORKDIR>/cu5_guess_sella_ts_emt/sella_ts_path.xyz",
+   "Trajectory: <WORKDIR>/cu5_guess_sella_ts_emt/sella_ts.traj",
+   "Frequency analysis complete: 1 imaginary mode(s).",
+   "Frequency summary: <WORKDIR>/cu5_guess_sella_ts_emt/frequencies_emt_summary.txt",
+   "Detailed output: <WORKDIR>/cu5_guess_sella_ts_emt/vibrations_emt_geometric.txt"
+  ],
+  "xyz": {
+   "cu5_guess_sella_ts_emt/sella_ts_optimized.xyz": {
+    "comment_line": "",
+    "final_positions": [
+     [
+      0.26320075,
+      0.15131046,
+      -0.21391551
+     ],
+     [
+      2.59818112,
+      0.07293359,
+      0.36517944
+     ],
+     [
+      1.32789141,
+      2.22713091,
+      0.37816894
+     ],
+     [
+      0.93216929,
+      0.5321011,
+      2.04034791
+     ],
+     [
+      3.57855744,
+      2.10652395,
+      -0.26978077
+     ]
+    ],
+    "frames": 1,
+    "pbc": [
+     false,
+     false,
+     false
+    ],
+    "symbols": [
+     "Cu",
+     "Cu",
+     "Cu",
+     "Cu",
+     "Cu"
+    ]
+   }
+  }
+ },
+ "freq_emt": {
+  "detailed_output": "vibrations_emt_geometric.txt",
+  "files": [
+   "frequencies_emt_summary.txt",
+   "vib_emt/cache.0x+.json",
+   "vib_emt/cache.0x-.json",
+   "vib_emt/cache.0y+.json",
+   "vib_emt/cache.0y-.json",
+   "vib_emt/cache.0z+.json",
+   "vib_emt/cache.0z-.json",
+   "vib_emt/cache.1x+.json",
+   "vib_emt/cache.1x-.json",
+   "vib_emt/cache.1y+.json",
+   "vib_emt/cache.1y-.json",
+   "vib_emt/cache.1z+.json",
+   "vib_emt/cache.1z-.json",
+   "vib_emt/cache.2x+.json",
+   "vib_emt/cache.2x-.json",
+   "vib_emt/cache.2y+.json",
+   "vib_emt/cache.2y-.json",
+   "vib_emt/cache.2z+.json",
+   "vib_emt/cache.2z-.json",
+   "vib_emt/cache.3x+.json",
+   "vib_emt/cache.3x-.json",
+   "vib_emt/cache.3y+.json",
+   "vib_emt/cache.3y-.json",
+   "vib_emt/cache.3z+.json",
+   "vib_emt/cache.3z-.json",
+   "vib_emt/cache.4x+.json",
+   "vib_emt/cache.4x-.json",
+   "vib_emt/cache.4y+.json",
+   "vib_emt/cache.4y-.json",
+   "vib_emt/cache.4z+.json",
+   "vib_emt/cache.4z-.json",
+   "vib_emt/cache.eq.json",
+   "vibrations_emt_geometric.txt"
+  ],
+  "frequencies_cm1": [
+   -24.380833106375974,
+   77.49147454293961,
+   112.2877558953212,
+   154.88415627948382,
+   157.16621440444715,
+   176.41633777034738,
+   181.98908792315,
+   273.2032472341905,
+   305.8628303837368
+  ],
+  "imaginary_count": 1,
+  "summary": "frequencies_emt_summary.txt",
+  "vibration_directory": "vib_emt"
+ },
+ "irc_emt_atoms": {
+  "direction": "both",
+  "fields": [
+   "forward_trajectory",
+   "reverse_trajectory",
+   "forward_xyz",
+   "reverse_xyz",
+   "full_path_xyz",
+   "forward_converged",
+   "reverse_converged",
+   "forward_steps",
+   "reverse_steps",
+   "direction",
+   "optimizer"
+  ],
+  "files": [
+   "sella_irc_forward.traj",
+   "sella_irc_forward.xyz",
+   "sella_irc_path.xyz",
+   "sella_irc_reverse.traj",
+   "sella_irc_reverse.xyz"
+  ],
+  "forward_converged": false,
+  "forward_steps": 21,
+  "forward_trajectory": "sella_irc_forward.traj",
+  "forward_trajectory_data": {
+   "final_energy": 5.718449307080583,
+   "first_energy": 5.719560377468163,
+   "frames": 21,
+   "min_energy": 5.718449307080583
+  },
+  "forward_xyz": "sella_irc_forward.xyz",
+  "forward_xyz_data": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     0.29903788,
+     0.17256678,
+     -0.24095768
+    ],
+    [
+     2.61285028,
+     0.08104249,
+     0.41377646
+    ],
+    [
+     1.3423753,
+     2.23565576,
+     0.42679393
+    ],
+    [
+     0.8922525,
+     0.50856586,
+     2.04184315
+    ],
+    [
+     3.55348404,
+     2.0921691,
+     -0.34145586
+    ]
+   ],
+   "frames": 21,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu"
+   ]
+  },
+  "full_path_data": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     0.29903788,
+     0.17256678,
+     -0.24095768
+    ],
+    [
+     2.61285028,
+     0.08104249,
+     0.41377646
+    ],
+    [
+     1.3423753,
+     2.23565576,
+     0.42679393
+    ],
+    [
+     0.8922525,
+     0.50856586,
+     2.04184315
+    ],
+    [
+     3.55348404,
+     2.0921691,
+     -0.34145586
+    ]
+   ],
+   "frames": 41,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu"
+   ]
+  },
+  "full_path_xyz": "sella_irc_path.xyz",
+  "input_has_calc": false,
+  "input_not_mutated": true,
+  "optimizer": "sella_irc",
+  "result_type": "IRCResult",
+  "reverse_converged": false,
+  "reverse_steps": 21,
+  "reverse_trajectory": "sella_irc_reverse.traj",
+  "reverse_trajectory_data": {
+   "final_energy": 5.718460111960393,
+   "first_energy": 5.719560377468163,
+   "frames": 21,
+   "min_energy": 5.718460111960393
+  },
+  "reverse_xyz": "sella_irc_reverse.xyz",
+  "reverse_xyz_data": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     0.23102843,
+     0.13213418,
+     -0.18671928
+    ],
+    [
+     2.58393747,
+     0.06458637,
+     0.31636213
+    ],
+    [
+     1.31346203,
+     2.21919265,
+     0.3293806
+    ],
+    [
+     0.97470803,
+     0.55721659,
+     2.03638915
+    ],
+    [
+     3.59686404,
+     2.11687021,
+     -0.1954126
+    ]
+   ],
+   "frames": 21,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu"
+   ]
+  }
+ },
+ "irc_emt_both": {
+  "direction": "both",
+  "fields": [
+   "forward_trajectory",
+   "reverse_trajectory",
+   "forward_xyz",
+   "reverse_xyz",
+   "full_path_xyz",
+   "forward_converged",
+   "reverse_converged",
+   "forward_steps",
+   "reverse_steps",
+   "direction",
+   "optimizer"
+  ],
+  "files": [
+   "sella_irc_forward.traj",
+   "sella_irc_forward.xyz",
+   "sella_irc_path.xyz",
+   "sella_irc_reverse.traj",
+   "sella_irc_reverse.xyz"
+  ],
+  "forward_converged": true,
+  "forward_steps": 135,
+  "forward_trajectory": "sella_irc_forward.traj",
+  "forward_trajectory_data": {
+   "final_energy": 5.394595929978773,
+   "first_energy": 5.719560377468163,
+   "frames": 135,
+   "min_energy": 5.394595929978773
+  },
+  "forward_xyz": "sella_irc_forward.xyz",
+  "forward_xyz_data": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     0.85542406,
+     0.50232654,
+     -0.51970376
+    ],
+    [
+     2.80550954,
+     0.21832493,
+     0.9431832
+    ],
+    [
+     1.55855671,
+     2.33305212,
+     0.95595734
+    ],
+    [
+     0.58896747,
+     0.33082423,
+     1.86172473
+    ],
+    [
+     2.89154222,
+     1.70547218,
+     -0.9411615
+    ]
+   ],
+   "frames": 135,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu"
+   ]
+  },
+  "full_path_data": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     0.85542406,
+     0.50232654,
+     -0.51970376
+    ],
+    [
+     2.80550954,
+     0.21832493,
+     0.9431832
+    ],
+    [
+     1.55855671,
+     2.33305212,
+     0.95595734
+    ],
+    [
+     0.58896747,
+     0.33082423,
+     1.86172473
+    ],
+    [
+     2.89154222,
+     1.70547218,
+     -0.9411615
+    ]
+   ],
+   "frames": 269,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu"
+   ]
+  },
+  "full_path_xyz": "sella_irc_path.xyz",
+  "optimizer": "sella_irc",
+  "result_type": "IRCResult",
+  "reverse_converged": true,
+  "reverse_steps": 135,
+  "reverse_trajectory": "sella_irc_reverse.traj",
+  "reverse_trajectory_data": {
+   "final_energy": 5.394597090648659,
+   "first_energy": 5.719560377468163,
+   "frames": 135,
+   "min_energy": 5.394597090648659
+  },
+  "reverse_xyz": "sella_irc_reverse.xyz",
+  "reverse_xyz_data": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     0.08719532,
+     0.04516333,
+     0.17061973
+    ],
+    [
+     2.45243185,
+     0.01713755,
+     -0.24637102
+    ],
+    [
+     1.20531457,
+     2.132131,
+     -0.23359078
+    ],
+    [
+     1.56207823,
+     0.90461989,
+     1.86133347
+    ],
+    [
+     3.39298002,
+     1.99094822,
+     0.7480086
+    ]
+   ],
+   "frames": 135,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu"
+   ]
+  }
+ },
+ "irc_emt_forward": {
+  "direction": "forward",
+  "fields": [
+   "forward_trajectory",
+   "reverse_trajectory",
+   "forward_xyz",
+   "reverse_xyz",
+   "full_path_xyz",
+   "forward_converged",
+   "reverse_converged",
+   "forward_steps",
+   "reverse_steps",
+   "direction",
+   "optimizer"
+  ],
+  "files": [
+   "sella_irc_forward.traj",
+   "sella_irc_forward.xyz",
+   "sella_irc_path.xyz"
+  ],
+  "forward_converged": true,
+  "forward_steps": 135,
+  "forward_trajectory": "sella_irc_forward.traj",
+  "forward_trajectory_data": {
+   "final_energy": 5.394595929978773,
+   "first_energy": 5.719560377468163,
+   "frames": 135,
+   "min_energy": 5.394595929978773
+  },
+  "forward_xyz": "sella_irc_forward.xyz",
+  "forward_xyz_data": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     0.85542406,
+     0.50232654,
+     -0.51970376
+    ],
+    [
+     2.80550954,
+     0.21832493,
+     0.9431832
+    ],
+    [
+     1.55855671,
+     2.33305212,
+     0.95595734
+    ],
+    [
+     0.58896747,
+     0.33082423,
+     1.86172473
+    ],
+    [
+     2.89154222,
+     1.70547218,
+     -0.9411615
+    ]
+   ],
+   "frames": 135,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu"
+   ]
+  },
+  "full_path_data": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     0.85542406,
+     0.50232654,
+     -0.51970376
+    ],
+    [
+     2.80550954,
+     0.21832493,
+     0.9431832
+    ],
+    [
+     1.55855671,
+     2.33305212,
+     0.95595734
+    ],
+    [
+     0.58896747,
+     0.33082423,
+     1.86172473
+    ],
+    [
+     2.89154222,
+     1.70547218,
+     -0.9411615
+    ]
+   ],
+   "frames": 135,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu"
+   ]
+  },
+  "full_path_xyz": "sella_irc_path.xyz",
+  "optimizer": "sella_irc",
+  "result_type": "IRCResult",
+  "reverse_converged": null,
+  "reverse_steps": null,
+  "reverse_trajectory": null,
+  "reverse_xyz": null
+ },
+ "irc_emt_reverse": {
+  "direction": "reverse",
+  "fields": [
+   "forward_trajectory",
+   "reverse_trajectory",
+   "forward_xyz",
+   "reverse_xyz",
+   "full_path_xyz",
+   "forward_converged",
+   "reverse_converged",
+   "forward_steps",
+   "reverse_steps",
+   "direction",
+   "optimizer"
+  ],
+  "files": [
+   "sella_irc_path.xyz",
+   "sella_irc_reverse.traj",
+   "sella_irc_reverse.xyz"
+  ],
+  "forward_converged": null,
+  "forward_steps": null,
+  "forward_trajectory": null,
+  "forward_xyz": null,
+  "full_path_data": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     0.26320075,
+     0.15131046,
+     -0.21391551
+    ],
+    [
+     2.59818112,
+     0.07293359,
+     0.36517944
+    ],
+    [
+     1.32789141,
+     2.22713091,
+     0.37816894
+    ],
+    [
+     0.93216929,
+     0.5321011,
+     2.04034791
+    ],
+    [
+     3.57855744,
+     2.10652395,
+     -0.26978077
+    ]
+   ],
+   "frames": 135,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu"
+   ]
+  },
+  "full_path_xyz": "sella_irc_path.xyz",
+  "optimizer": "sella_irc",
+  "result_type": "IRCResult",
+  "reverse_converged": true,
+  "reverse_steps": 135,
+  "reverse_trajectory": "sella_irc_reverse.traj",
+  "reverse_trajectory_data": {
+   "final_energy": 5.394597090648659,
+   "first_energy": 5.719560377468163,
+   "frames": 135,
+   "min_energy": 5.394597090648659
+  },
+  "reverse_xyz": "sella_irc_reverse.xyz",
+  "reverse_xyz_data": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     0.08719532,
+     0.04516333,
+     0.17061973
+    ],
+    [
+     2.45243185,
+     0.01713755,
+     -0.24637102
+    ],
+    [
+     1.20531457,
+     2.132131,
+     -0.23359078
+    ],
+    [
+     1.56207823,
+     0.90461989,
+     1.86133347
+    ],
+    [
+     3.39298002,
+     1.99094822,
+     0.7480086
+    ]
+   ],
+   "frames": 135,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu"
+   ]
+  }
+ },
+ "min_emt_bfgs": {
+  "converged": true,
+  "fields": [
+   "trajectory",
+   "optimized_xyz",
+   "final_xyz",
+   "converged",
+   "steps",
+   "mode",
+   "optimizer"
+  ],
+  "files": [
+   "geometry_min.traj",
+   "geometry_min_optimized.xyz",
+   "geometry_min_path.xyz"
+  ],
+  "final_xyz": "geometry_min_optimized.xyz",
+  "final_xyz_data": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     -0.00334663,
+     -0.0035869,
+     0.20171269
+    ],
+    [
+     -0.0001179,
+     0.82375096,
+     -0.52163897
+    ],
+    [
+     0.05346453,
+     -0.85716406,
+     -0.48807372
+    ]
+   ],
+   "frames": 1,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "O",
+    "H",
+    "H"
+   ]
+  },
+  "mode": "min",
+  "optimized_xyz": "geometry_min_path.xyz",
+  "optimizer": "bfgs",
+  "path_xyz": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     -0.00334663,
+     -0.0035869,
+     0.20171269
+    ],
+    [
+     -0.0001179,
+     0.82375096,
+     -0.52163897
+    ],
+    [
+     0.05346453,
+     -0.85716406,
+     -0.48807372
+    ]
+   ],
+   "frames": 6,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "O",
+    "H",
+    "H"
+   ]
+  },
+  "result_type": "OptimizationResult",
+  "steps": 6,
+  "trajectory": "geometry_min.traj",
+  "trajectory_data": {
+   "final_energy": 1.8789487126140862,
+   "first_energy": 2.531003465524214,
+   "frames": 6,
+   "min_energy": 1.8789487126140862
+  }
+ },
+ "min_emt_charged_metadata": {
+  "calculator": "EMT",
+  "info": {
+   "charge": -1,
+   "spin": 2
+  },
+  "initial_charges": [
+   -1.0,
+   0.0,
+   0.0
+  ],
+  "initial_magmoms": [
+   1.0,
+   0.0,
+   0.0
+  ]
+ },
+ "min_emt_file": {
+  "converged": true,
+  "fields": [
+   "trajectory",
+   "optimized_xyz",
+   "final_xyz",
+   "converged",
+   "steps",
+   "mode",
+   "optimizer"
+  ],
+  "files": [
+   "geometry_min.traj",
+   "geometry_min_optimized.xyz",
+   "geometry_min_path.xyz"
+  ],
+  "final_xyz": "geometry_min_optimized.xyz",
+  "final_xyz_data": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     -0.0,
+     0.00950534,
+     0.12356942
+    ],
+    [
+     0.0,
+     0.09049466,
+     1.17643058
+    ]
+   ],
+   "frames": 1,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "C",
+    "O"
+   ]
+  },
+  "mode": "min",
+  "optimized_xyz": "geometry_min_path.xyz",
+  "optimizer": "bfgs",
+  "path_xyz": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     -0.0,
+     0.00950534,
+     0.12356942
+    ],
+    [
+     0.0,
+     0.09049466,
+     1.17643058
+    ]
+   ],
+   "frames": 7,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "C",
+    "O"
+   ]
+  },
+  "result_type": "OptimizationResult",
+  "steps": 7,
+  "trajectory": "geometry_min.traj",
+  "trajectory_data": {
+   "final_energy": 0.6702817915864383,
+   "first_energy": 1.3260628609739609,
+   "frames": 7,
+   "min_energy": 0.6702817915864383
+  }
+ },
+ "min_emt_fire": {
+  "converged": true,
+  "fields": [
+   "trajectory",
+   "optimized_xyz",
+   "final_xyz",
+   "converged",
+   "steps",
+   "mode",
+   "optimizer"
+  ],
+  "files": [
+   "geometry_min.traj",
+   "geometry_min_optimized.xyz",
+   "geometry_min_path.xyz"
+  ],
+  "final_xyz": "geometry_min_optimized.xyz",
+  "final_xyz_data": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     -0.00321627,
+     -0.00364915,
+     0.19864854
+    ],
+    [
+     -0.00029772,
+     0.82751811,
+     -0.520288
+    ],
+    [
+     0.05351398,
+     -0.86086896,
+     -0.48636054
+    ]
+   ],
+   "frames": 1,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "O",
+    "H",
+    "H"
+   ]
+  },
+  "mode": "min",
+  "optimized_xyz": "geometry_min_path.xyz",
+  "optimizer": "fire",
+  "path_xyz": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     -0.00321627,
+     -0.00364915,
+     0.19864854
+    ],
+    [
+     -0.00029772,
+     0.82751811,
+     -0.520288
+    ],
+    [
+     0.05351398,
+     -0.86086896,
+     -0.48636054
+    ]
+   ],
+   "frames": 27,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "O",
+    "H",
+    "H"
+   ]
+  },
+  "result_type": "OptimizationResult",
+  "steps": 27,
+  "trajectory": "geometry_min.traj",
+  "trajectory_data": {
+   "final_energy": 1.8789166233391867,
+   "first_energy": 2.531003465524214,
+   "frames": 27,
+   "min_energy": 1.8789166233391867
+  }
+ },
+ "min_emt_lbfgs": {
+  "converged": true,
+  "fields": [
+   "trajectory",
+   "optimized_xyz",
+   "final_xyz",
+   "converged",
+   "steps",
+   "mode",
+   "optimizer"
+  ],
+  "files": [
+   "geometry_min.traj",
+   "geometry_min_optimized.xyz",
+   "geometry_min_path.xyz"
+  ],
+  "final_xyz": "geometry_min_optimized.xyz",
+  "final_xyz_data": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     -0.00334663,
+     -0.0035869,
+     0.20171269
+    ],
+    [
+     -0.0001179,
+     0.82375096,
+     -0.52163897
+    ],
+    [
+     0.05346453,
+     -0.85716406,
+     -0.48807372
+    ]
+   ],
+   "frames": 1,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "O",
+    "H",
+    "H"
+   ]
+  },
+  "mode": "min",
+  "optimized_xyz": "geometry_min_path.xyz",
+  "optimizer": "lbfgs",
+  "path_xyz": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     -0.00334663,
+     -0.0035869,
+     0.20171269
+    ],
+    [
+     -0.0001179,
+     0.82375096,
+     -0.52163897
+    ],
+    [
+     0.05346453,
+     -0.85716406,
+     -0.48807372
+    ]
+   ],
+   "frames": 6,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "O",
+    "H",
+    "H"
+   ]
+  },
+  "result_type": "OptimizationResult",
+  "steps": 6,
+  "trajectory": "geometry_min.traj",
+  "trajectory_data": {
+   "final_energy": 1.8789487126140862,
+   "first_energy": 2.531003465524214,
+   "frames": 6,
+   "min_energy": 1.8789487126140862
+  }
+ },
+ "ts_emt": {
+  "converged": true,
+  "fields": [
+   "trajectory",
+   "optimized_xyz",
+   "final_xyz",
+   "converged",
+   "steps",
+   "mode",
+   "optimizer"
+  ],
+  "files": [
+   "sella_ts.traj",
+   "sella_ts_optimized.xyz",
+   "sella_ts_path.xyz"
+  ],
+  "final_xyz": "sella_ts_optimized.xyz",
+  "final_xyz_data": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     0.26320075,
+     0.15131046,
+     -0.21391551
+    ],
+    [
+     2.59818112,
+     0.07293359,
+     0.36517944
+    ],
+    [
+     1.32789141,
+     2.22713091,
+     0.37816894
+    ],
+    [
+     0.93216929,
+     0.5321011,
+     2.04034791
+    ],
+    [
+     3.57855744,
+     2.10652395,
+     -0.26978077
+    ]
+   ],
+   "frames": 1,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu"
+   ]
+  },
+  "mode": "ts",
+  "optimized_xyz": "sella_ts_path.xyz",
+  "optimizer": "sella",
+  "path_xyz": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     0.26320075,
+     0.15131046,
+     -0.21391551
+    ],
+    [
+     2.59818112,
+     0.07293359,
+     0.36517944
+    ],
+    [
+     1.32789141,
+     2.22713091,
+     0.37816894
+    ],
+    [
+     0.93216929,
+     0.5321011,
+     2.04034791
+    ],
+    [
+     3.57855744,
+     2.10652395,
+     -0.26978077
+    ]
+   ],
+   "frames": 27,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu"
+   ]
+  },
+  "result_type": "OptimizationResult",
+  "steps": 27,
+  "trajectory": "sella_ts.traj",
+  "trajectory_data": {
+   "final_energy": 5.719560377468165,
+   "first_energy": 5.864565934280122,
+   "frames": 27,
+   "min_energy": 5.718503171192385
+  }
+ },
+ "ts_emt_file_custom_names": {
+  "converged": true,
+  "fields": [
+   "trajectory",
+   "optimized_xyz",
+   "final_xyz",
+   "converged",
+   "steps",
+   "mode",
+   "optimizer"
+  ],
+  "files": [
+   "custom.traj",
+   "custom_final.xyz",
+   "custom_path.xyz"
+  ],
+  "final_xyz": "custom_final.xyz",
+  "final_xyz_data": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     0.26320075,
+     0.15131046,
+     -0.21391551
+    ],
+    [
+     2.59818112,
+     0.07293359,
+     0.36517944
+    ],
+    [
+     1.32789141,
+     2.22713091,
+     0.37816894
+    ],
+    [
+     0.93216929,
+     0.5321011,
+     2.04034791
+    ],
+    [
+     3.57855744,
+     2.10652395,
+     -0.26978077
+    ]
+   ],
+   "frames": 1,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu"
+   ]
+  },
+  "mode": "ts",
+  "optimized_xyz": "custom_path.xyz",
+  "optimizer": "sella",
+  "path_xyz": {
+   "comment_line": "",
+   "final_positions": [
+    [
+     0.26320075,
+     0.15131046,
+     -0.21391551
+    ],
+    [
+     2.59818112,
+     0.07293359,
+     0.36517944
+    ],
+    [
+     1.32789141,
+     2.22713091,
+     0.37816894
+    ],
+    [
+     0.93216929,
+     0.5321011,
+     2.04034791
+    ],
+    [
+     3.57855744,
+     2.10652395,
+     -0.26978077
+    ]
+   ],
+   "frames": 27,
+   "pbc": [
+    false,
+    false,
+    false
+   ],
+   "symbols": [
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu",
+    "Cu"
+   ]
+  },
+  "result_type": "OptimizationResult",
+  "steps": 27,
+  "trajectory": "custom.traj",
+  "trajectory_data": {
+   "final_energy": 5.719560377468165,
+   "first_energy": 5.864565934280122,
+   "frames": 27,
+   "min_energy": 5.718503171192385
+  }
+ },
+ "ts_irc_min_xtb": {
+  "irc": {
+   "direction": "both",
+   "fields": [
+    "forward_trajectory",
+    "reverse_trajectory",
+    "forward_xyz",
+    "reverse_xyz",
+    "full_path_xyz",
+    "forward_converged",
+    "reverse_converged",
+    "forward_steps",
+    "reverse_steps",
+    "direction",
+    "optimizer"
+   ],
+   "files": [
+    "sella_irc_forward.traj",
+    "sella_irc_forward.xyz",
+    "sella_irc_path.xyz",
+    "sella_irc_reverse.traj",
+    "sella_irc_reverse.xyz"
+   ],
+   "forward_converged": true,
+   "forward_steps": 14,
+   "forward_trajectory": "sella_irc_forward.traj",
+   "forward_trajectory_data": {
+    "final_energy": -199.63280075266175,
+    "first_energy": -199.52038525534348,
+    "frames": 14,
+    "min_energy": -199.63280075266175
+   },
+   "forward_xyz": "sella_irc_forward.xyz",
+   "forward_xyz_data": {
+    "comment_line": "",
+    "final_positions": [
+     [
+      -4.38e-06,
+      -6.046e-05,
+      0.76070751
+     ],
+     [
+      -7.588e-05,
+      -5.287e-05,
+      -0.76070909
+     ],
+     [
+      -1.01813695,
+      0.00358461,
+      1.14360865
+     ],
+     [
+      0.50594376,
+      -0.88361787,
+      1.14357086
+     ],
+     [
+      0.51222256,
+      0.87992285,
+      1.14365655
+     ],
+     [
+      -0.50601868,
+      -0.88362992,
+      -1.14361073
+     ],
+     [
+      -0.51239956,
+      0.87988834,
+      -1.14354368
+     ],
+     [
+      1.01801493,
+      0.00369079,
+      -1.14367422
+     ]
+    ],
+    "frames": 14,
+    "pbc": [
+     false,
+     false,
+     false
+    ],
+    "symbols": [
+     "C",
+     "C",
+     "H",
+     "H",
+     "H",
+     "H",
+     "H",
+     "H"
+    ]
+   },
+   "full_path_data": {
+    "comment_line": "",
+    "final_positions": [
+     [
+      -4.38e-06,
+      -6.046e-05,
+      0.76070751
+     ],
+     [
+      -7.588e-05,
+      -5.287e-05,
+      -0.76070909
+     ],
+     [
+      -1.01813695,
+      0.00358461,
+      1.14360865
+     ],
+     [
+      0.50594376,
+      -0.88361787,
+      1.14357086
+     ],
+     [
+      0.51222256,
+      0.87992285,
+      1.14365655
+     ],
+     [
+      -0.50601868,
+      -0.88362992,
+      -1.14361073
+     ],
+     [
+      -0.51239956,
+      0.87988834,
+      -1.14354368
+     ],
+     [
+      1.01801493,
+      0.00369079,
+      -1.14367422
+     ]
+    ],
+    "frames": 27,
+    "pbc": [
+     false,
+     false,
+     false
+    ],
+    "symbols": [
+     "C",
+     "C",
+     "H",
+     "H",
+     "H",
+     "H",
+     "H",
+     "H"
+    ]
+   },
+   "full_path_xyz": "sella_irc_path.xyz",
+   "optimizer": "sella_irc",
+   "result_type": "IRCResult",
+   "reverse_converged": true,
+   "reverse_steps": 14,
+   "reverse_trajectory": "sella_irc_reverse.traj",
+   "reverse_trajectory_data": {
+    "final_energy": -199.6328014771405,
+    "first_energy": -199.52038525534348,
+    "frames": 14,
+    "min_energy": -199.6328014771405
+   },
+   "reverse_xyz": "sella_irc_reverse.xyz",
+   "reverse_xyz_data": {
+    "comment_line": "",
+    "final_positions": [
+     [
+      5.027e-05,
+      -0.0001128,
+      0.76070578
+     ],
+     [
+      -9.346e-05,
+      0.00014079,
+      -0.76071005
+     ],
+     [
+      -0.51211181,
+      0.87980179,
+      1.14380781
+     ],
+     [
+      -0.50589053,
+      -0.88372543,
+      1.14349205
+     ],
+     [
+      1.01822437,
+      0.0034239,
+      1.14352305
+     ],
+     [
+      0.50583723,
+      -0.88333319,
+      -1.14379433
+     ],
+     [
+      -1.01831656,
+      0.00374841,
+      -1.14348832
+     ],
+     [
+      0.51200634,
+      0.88018444,
+      -1.14355526
+     ]
+    ],
+    "frames": 14,
+    "pbc": [
+     false,
+     false,
+     false
+    ],
+    "symbols": [
+     "C",
+     "C",
+     "H",
+     "H",
+     "H",
+     "H",
+     "H",
+     "H"
+    ]
+   }
+  },
+  "min": {
+   "converged": true,
+   "fields": [
+    "trajectory",
+    "optimized_xyz",
+    "final_xyz",
+    "converged",
+    "steps",
+    "mode",
+    "optimizer"
+   ],
+   "files": [
+    "geometry_min.traj",
+    "geometry_min_optimized.xyz",
+    "geometry_min_path.xyz"
+   ],
+   "final_xyz": "geometry_min_optimized.xyz",
+   "final_xyz_data": {
+    "comment_line": "",
+    "final_positions": [
+     [
+      5.027e-05,
+      -0.0001128,
+      0.76070578
+     ],
+     [
+      -9.346e-05,
+      0.00014079,
+      -0.76071005
+     ],
+     [
+      -0.51211181,
+      0.87980179,
+      1.14380781
+     ],
+     [
+      -0.50589053,
+      -0.88372543,
+      1.14349205
+     ],
+     [
+      1.01822437,
+      0.0034239,
+      1.14352305
+     ],
+     [
+      0.50583723,
+      -0.88333319,
+      -1.14379433
+     ],
+     [
+      -1.01831656,
+      0.00374841,
+      -1.14348832
+     ],
+     [
+      0.51200634,
+      0.88018444,
+      -1.14355526
+     ]
+    ],
+    "frames": 1,
+    "pbc": [
+     false,
+     false,
+     false
+    ],
+    "symbols": [
+     "C",
+     "C",
+     "H",
+     "H",
+     "H",
+     "H",
+     "H",
+     "H"
+    ]
+   },
+   "mode": "min",
+   "optimized_xyz": "geometry_min_path.xyz",
+   "optimizer": "bfgs",
+   "path_xyz": {
+    "comment_line": "",
+    "final_positions": [
+     [
+      5.027e-05,
+      -0.0001128,
+      0.76070578
+     ],
+     [
+      -9.346e-05,
+      0.00014079,
+      -0.76071005
+     ],
+     [
+      -0.51211181,
+      0.87980179,
+      1.14380781
+     ],
+     [
+      -0.50589053,
+      -0.88372543,
+      1.14349205
+     ],
+     [
+      1.01822437,
+      0.0034239,
+      1.14352305
+     ],
+     [
+      0.50583723,
+      -0.88333319,
+      -1.14379433
+     ],
+     [
+      -1.01831656,
+      0.00374841,
+      -1.14348832
+     ],
+     [
+      0.51200634,
+      0.88018444,
+      -1.14355526
+     ]
+    ],
+    "frames": 1,
+    "pbc": [
+     false,
+     false,
+     false
+    ],
+    "symbols": [
+     "C",
+     "C",
+     "H",
+     "H",
+     "H",
+     "H",
+     "H",
+     "H"
+    ]
+   },
+   "result_type": "OptimizationResult",
+   "steps": 1,
+   "trajectory": "geometry_min.traj",
+   "trajectory_data": {
+    "final_energy": -199.63280147714013,
+    "first_energy": -199.63280147714013,
+    "frames": 1,
+    "min_energy": -199.63280147714013
+   }
+  },
+  "ts": {
+   "converged": true,
+   "fields": [
+    "trajectory",
+    "optimized_xyz",
+    "final_xyz",
+    "converged",
+    "steps",
+    "mode",
+    "optimizer"
+   ],
+   "files": [
+    "sella_ts.traj",
+    "sella_ts_optimized.xyz",
+    "sella_ts_path.xyz"
+   ],
+   "final_xyz": "sella_ts_optimized.xyz",
+   "final_xyz_data": {
+    "comment_line": "",
+    "final_positions": [
+     [
+      3.372e-05,
+      3.662e-05,
+      0.76632702
+     ],
+     [
+      1.65e-05,
+      1.318e-05,
+      -0.76633148
+     ],
+     [
+      -0.87787345,
+      0.5069078,
+      1.15839376
+     ],
+     [
+      -5.654e-05,
+      -1.01376743,
+      1.15842466
+     ],
+     [
+      0.87793907,
+      0.50685769,
+      1.15849126
+     ],
+     [
+      8.5e-06,
+      -1.01370897,
+      -1.15847036
+     ],
+     [
+      -0.87798962,
+      0.5067784,
+      -1.15841982
+     ],
+     [
+      0.87792268,
+      0.50688323,
+      -1.15841504
+     ]
+    ],
+    "frames": 1,
+    "pbc": [
+     false,
+     false,
+     false
+    ],
+    "symbols": [
+     "C",
+     "C",
+     "H",
+     "H",
+     "H",
+     "H",
+     "H",
+     "H"
+    ]
+   },
+   "mode": "ts",
+   "optimized_xyz": "sella_ts_path.xyz",
+   "optimizer": "sella",
+   "path_xyz": {
+    "comment_line": "",
+    "final_positions": [
+     [
+      3.372e-05,
+      3.662e-05,
+      0.76632702
+     ],
+     [
+      1.65e-05,
+      1.318e-05,
+      -0.76633148
+     ],
+     [
+      -0.87787345,
+      0.5069078,
+      1.15839376
+     ],
+     [
+      -5.654e-05,
+      -1.01376743,
+      1.15842466
+     ],
+     [
+      0.87793907,
+      0.50685769,
+      1.15849126
+     ],
+     [
+      8.5e-06,
+      -1.01370897,
+      -1.15847036
+     ],
+     [
+      -0.87798962,
+      0.5067784,
+      -1.15841982
+     ],
+     [
+      0.87792268,
+      0.50688323,
+      -1.15841504
+     ]
+    ],
+    "frames": 58,
+    "pbc": [
+     false,
+     false,
+     false
+    ],
+    "symbols": [
+     "C",
+     "C",
+     "H",
+     "H",
+     "H",
+     "H",
+     "H",
+     "H"
+    ]
+   },
+   "result_type": "OptimizationResult",
+   "steps": 58,
+   "trajectory": "sella_ts.traj",
+   "trajectory_data": {
+    "final_energy": -199.52038525534363,
+    "first_energy": -199.51619364249476,
+    "frames": 58,
+    "min_energy": -199.5295465580187
+   }
+  }
+ }
+}
