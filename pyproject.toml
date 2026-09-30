@@ -17,10 +17,19 @@ dependencies = [
 [project.optional-dependencies]
 vibrations = ["geometric"]
 mace = ["mace-torch", "mace-models"]
-all = ["geometric", "mace-torch", "mace-models"]
+adsorption = ["pymatgen", "networkx", "pyyaml", "pandas", "matplotlib", "pillow", "scipy", "mace-torch", "torch-dftd"]
+test = ["pytest"]
+all = ["geometric", "mace-torch", "mace-models", "pymatgen", "networkx", "pyyaml", "pandas", "matplotlib", "pillow", "scipy", "torch-dftd"]
 
 [project.scripts]
 ase-structure-opt = "ase_structure_optimizer.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    # ASE optimizers call the deprecated Optimizer.flush() internally.
+    "ignore:Log flushes by default now:FutureWarning",
+]

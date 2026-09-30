@@ -77,6 +77,19 @@ For both:
 pip install -e ".[all]"
 ```
 
+For the shared tools used by the (upcoming) adsorption workflow, such as bond
+graphs (`networkx`) and MACE-MP with D3 dispersion (`torch-dftd`):
+
+```bash
+pip install -e ".[adsorption]"
+```
+
+For running the test suite:
+
+```bash
+pip install -e ".[test]"
+```
+
 Other calculator backends, such as xTB, Q-Chem, FAIRChem, and AIMNet2, are
 environment-specific and must be installed/configured separately.
 
@@ -308,6 +321,17 @@ The CLI accepts these calculator names:
 - `qchem`: Q-Chem with `wb97x-v/def2-tzvp` by default
 - `b3lyp`: Q-Chem with `b3lyp/def2-svp`
 - `emt`: ASE EMT, useful only for smoke tests
+- `macemp`: MACE-MP materials foundation model (`medium-mpa-0` by default),
+  for periodic systems such as bulk solids and surfaces
+
+The FAIRChem UMA models (`uma_s`, `uma_m`) use the `omol` task by default,
+which is the molecular task used in all existing workflows. From Python, set
+`CalculatorConfig(uma_task=...)` to `omat` (bulk materials) or `oc20`
+(adsorbate + surface systems) for periodic systems. `eSEN` only supports
+`omol`. Energies from different tasks or models must never be mixed.
+
+ML backends run on CUDA when available and otherwise on CPU. From Python,
+`CalculatorConfig(device="cpu")` or `device="cuda"` overrides this.
 
 IRC path tracing (`--mode irc`) uses the same Sella machinery as `--mode ts`
 and imposes no extra requirements on the calculator, so every calculator
@@ -396,6 +420,104 @@ result = run_geometry_optimization(
 )
 ```
 
+## MACE-MP Model Location
+
+`macemp` reads its model name from `CalculatorConfig.mace_mp_model`
+(default `medium-mpa-0`). This setting is separate from `mace_model`, which
+only affects `maceomol`. Like MACE-OMOL, MACE-MP models are downloaded on
+first use into the MACE cache, `~/.cache/mace/` or
+`$XDG_CACHE_HOME/mace/`. Available model names depend on the installed
+`mace-torch` version. On machines without internet access, download the model
+file elsewhere and pass its path:
+
+```python
+from ase_structure_optimizer import CalculatorConfig
+
+config = CalculatorConfig(
+    name="macemp",
+    mace_mp_model="/data/models/mace-mpa-0-medium.model",
+    dispersion=True,     # add D3(BJ), requires torch-dftd
+    dtype="float64",     # MACE default_dtype; float32 is faster for screening
+)
+```
+
+FAIRChem UMA models are downloaded from Hugging Face on first use and need an
+account with access to the UMA model repository (`huggingface-cli login`).
+
+## Periodic Systems
+
+The core optimization functions also accept periodic ASE `Atoms` (bulk
+crystals and slabs, with `atoms.pbc` set). Molecular inputs (all `pbc`
+False), including every XYZ input to `ase-structure-opt`, behave exactly as
+before.
+
+For periodic systems:
+
+- Use a periodic calculator. Check with `calculator_capabilities()`: the
+  molecular models (`maceomol`, `aimnet2`, `eSEN`, UMA with `uma_task="omol"`,
+  `xtb`, `qchem`, `b3lyp`) report `periodic=False` and must not be used for
+  surfaces or solids. `macemp`, UMA with `omat`/`oc20`, and `emt` (tests
+  only) report `periodic=True`.
+- Charge and multiplicity are stored only in `atoms.info`; no initial charge
+  or magnetic moment is written to atom 0, unlike for molecules.
+- `path` and `final` output files keep their `.xyz` names but are written in
+  extended XYZ format, so the cell, pbc and fixed atoms (`FixAtoms`) are
+  preserved.
+- `optimize_geometry_atoms(..., cell_filter=True)` also relaxes the cell
+  (`FrechetCellFilter`, or `ExpCellFilter` on older ASE).
+- `FixAtoms` constraints on the input are kept during optimization.
+
+```python
+from pathlib import Path
+
+from ase.build import fcc111
+from ase.constraints import FixAtoms
+
+from ase_structure_optimizer import (
+    CalculatorConfig,
+    calculator_capabilities,
+    get_calculator,
+    optimize_geometry_atoms,
+)
+
+slab = fcc111("Cu", size=(3, 3, 4), vacuum=10.0)
+slab.pbc = True
+slab.set_constraint(FixAtoms(indices=[atom.index for atom in slab if atom.tag >= 3]))
+
+config = CalculatorConfig(name="macemp", dispersion=True)
+assert calculator_capabilities(config).periodic
+
+result = optimize_geometry_atoms(
+    atoms=slab,
+    calculator_config=config,
+    output_dir=Path("runs/cu111"),
+    fmax=0.05,
+    optimizer="lbfgs",
+    calculator=get_calculator(config),  # cached: the model is loaded only once
+)
+print(result.energy, result.final_xyz)
+```
+
+Structure helpers in `ase_structure_optimizer.structures`:
+
+- `read_structure(path)`: reads xyz / extxyz / cif / traj (last frame). CIF
+  occupancy info and tags are cleared so `ase.visualize.plot.plot_atoms`
+  works; plain XYZ files are returned with `pbc=False`.
+- `write_trajectory_pair(images, path_stem)`: writes `<path_stem>.traj` and a
+  text `<path_stem>.extxyz` copy, keeping stored energies.
+- `is_slab(atoms, min_gap=8.0)`: returns `(True, axis)` when exactly one cell
+  axis has a vacuum gap of at least `min_gap` Å, otherwise `(False, None)`.
+
+Bond-graph helpers in `ase_structure_optimizer.graphs` (need `networkx`):
+
+- `build_bond_graph(atoms, indices=None, scale=1.2, overrides=())`: atoms are
+  bonded when `d < scale * (r_cov_i + r_cov_j)` (minimum image along periodic
+  directions); `overrides` forces `(i, j, True/False)` bonds.
+- `split_fragments(graph, symbols)`: ligand fragments after removing
+  transition-metal atoms, named by formula (`C5H5`, `CO_1`, `CO_2`, `H`).
+- `same_connectivity(g1, g2)` and `graph_hash(graph, symbols)`: compare bond
+  graphs index-wise or independent of atom order.
+
 ## Outputs
 
 By default, local-minimum outputs are written next to the input XYZ in:
@@ -467,8 +589,43 @@ OptimizationResult(
     steps=...,
     mode=...,
     optimizer=...,
+    energy=...,
 )
 ```
+
+`energy` is the potential energy (eV) of the last trajectory frame, read from
+the trajectory without an extra calculation. `optimize_geometry_atoms()` also
+accepts these keyword arguments:
+
+- `calculator=None`: attach this calculator instance instead of building one
+  from `calculator_config`
+- `cell_filter=False`: also relax the cell of a periodic system
+- `logfile="-"`: optimizer log destination; `None` disables the log
+- `write_outputs=True`: when `False`, only the trajectory is written and
+  `optimized_xyz` / `final_xyz` are `None` (for large screening runs)
+
+Calculator helpers:
+
+- `get_calculator(config, cache=True)`: like `build_calculator()`, but ML
+  backends (`macemp`, `maceomol`, `uma_s`, `uma_m`, `eSEN`, `aimnet2`) are
+  cached per `CalculatorConfig`, so the model is loaded only once per process.
+  `build_calculator()` still creates a new instance on every call.
+  `clear_calculator_cache()` drops cached models.
+- `calculator_capabilities(config)` returns `CalculatorCapabilities`:
+
+```python
+CalculatorCapabilities(
+    periodic=...,           # can describe bulk solids / surfaces
+    uses_charge_spin=...,   # uses charge / multiplicity
+    elements=...,           # frozenset of supported elements, or None
+    level_of_theory=...,    # e.g. "PBE (MPtrj/MPA)", "RPBE (OC20)"
+)
+```
+
+`CalculatorConfig` fields added for periodic systems, all with defaults that
+keep the existing backends unchanged: `device="auto"`, `dtype="float64"`
+(MACE `default_dtype`), `dispersion=False` (D3(BJ) for `macemp`),
+`mace_mp_model="medium-mpa-0"`, `uma_task="omol"`.
 
 Use `run_frequency_analysis()` for an optimized XYZ file. Use
 `analyze_frequencies_atoms()` for an ASE `Atoms` object. Both return
@@ -517,3 +674,17 @@ Fields for a direction that was not run (via `direction="forward"` or
   for reactive geometries outside their training domain.
 - A common workflow is to optimize cheaply with xTB or an ML potential, then
   verify or refine with DFT.
+
+## Running Tests
+
+```bash
+pip install -e ".[test]"
+python -m pytest
+```
+
+`tests/test_core_regression.py` re-runs the minimization, TS, IRC, frequency
+and CLI workflows (EMT, plus xTB when installed) and compares file names,
+step counts, energies and coordinates with the reference recorded on the
+original code in `tests/data/regression_baseline.json`. Regenerate the
+reference with `python tests/record_baseline.py` only after an intentional,
+reviewed behavior change.
