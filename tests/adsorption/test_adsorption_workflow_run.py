@@ -43,6 +43,7 @@ def _config(directory: Path, **overrides):
         "surface": {"miller_indices": [[1, 1, 1]], "min_slab_thickness": 6.0, "lateral_buffer": 7.0},
         "sampling": {"n_random": 4, "spins_per_anchor": 1},
         "budget": {"wall_time_per_termination": 0, "max_steps": 120, "min_full_relax": 3},
+        "analysis": {"make_gif": False},
     }
     for key, value in overrides.items():
         data[key] = {**data.get(key, {}), **value} if isinstance(value, dict) else value
@@ -309,3 +310,38 @@ def test_moved_run_directory_can_be_resumed(tmp_path: Path):
     resumed = resume_adsorption_workflow(moved)
     assert resumed.run_dir == moved.resolve()
     assert resumed.terminations[0].best_eads == pytest.approx(first.terminations[0].best_eads)
+
+
+def test_report_with_animations_and_cli_regeneration(tmp_path: Path, capsys):
+    import re
+
+    result = run_adsorption_workflow(_config(tmp_path, analysis={"make_gif": True}, sampling={"n_random": 2}))
+    run_dir = result.run_dir
+    assert result.report == run_dir / "report.html"
+    text = result.report.read_text(encoding="utf-8")
+    for section in ("overview", "settings", "timing", "molecule", "angles", "term-111_t0", "warnings", "vasp",
+                    "animation"):
+        assert f"id='{section}'" in text
+    assert "data:image/png;base64," in text and "<script" in text  # embedded images and the jshtml player
+    for link in re.findall(r"href='#([^']+)'", text):
+        assert f"id='{link}'" in text
+
+    figures = run_dir / "figures"
+    best = result.terminations[0].best_unique_id
+    for name in (f"relaxation_111_t0_{best}.gif", f"relaxation_111_t0_{best}.png", "approach_111_t0.gif",
+                 "approach_111_t0.png", "molecule_axis.png", "angle_definition.png"):
+        assert (figures / name).is_file(), name
+    from PIL import Image
+
+    with Image.open(figures / "approach_111_t0.gif") as gif:
+        assert 1 < gif.n_frames <= 80
+
+    # Regenerate without calculations; figures are redrawn.
+    (run_dir / "report.html").unlink()
+    (figures / "eads_ranking_111_t0.png").unlink()
+    assert main(["report", str(run_dir), "--no-animations"]) == 0
+    assert "Report:" in capsys.readouterr().out
+    assert (run_dir / "report.html").is_file() and (figures / "eads_ranking_111_t0.png").is_file()
+    assert "id='animation'" not in (run_dir / "report.html").read_text(encoding="utf-8")
+    assert main(["report", str(tmp_path / "nope")]) == 1
+    assert not (tmp_path / "nope").exists()

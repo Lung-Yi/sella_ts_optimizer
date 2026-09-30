@@ -60,7 +60,7 @@ def test_init_config(tmp_path: Path, capsys):
         main(["init-config", "-o", str(target)])  # refuses to overwrite
 
 
-@pytest.mark.parametrize("command", ["report", "vasp", "dft-collect"])
+@pytest.mark.parametrize("command", ["vasp", "dft-collect"])
 def test_planned_commands_report_not_implemented(command, capsys):
     assert main([command, "anything"]) == 2
     assert "not implemented yet" in capsys.readouterr().err

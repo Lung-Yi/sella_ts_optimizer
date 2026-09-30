@@ -19,7 +19,7 @@ import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Sequence
 
 import numpy as np
 from ase import Atoms
@@ -1065,9 +1065,15 @@ def _write_results_csv(path: Path, candidates: list[Candidate], state: RunState,
 def _termination_result(
     context: RunContext, surface: SurfaceModel, candidates: list[Candidate], warnings: list[str]
 ) -> TerminationResult:
-    term = surface.term_id
-    state = context.state
-    directory = context.run_dir / "terminations" / term
+    return termination_result_from_state(context.state, context.run_dir, surface.term_id, len(candidates), warnings)
+
+
+def termination_result_from_state(
+    state: RunState, run_dir: Path, term: str, n_candidates: int, warnings: Sequence[str] = ()
+) -> TerminationResult:
+    """Sampling part of a `TerminationResult`, rebuilt from ``state.json``."""
+
+    directory = run_dir / "terminations" / term
     prescreen = state.items.get(f"{term}/prescreen", {})
     relax = state.items.get(f"{term}/relax", {})
     done = {cid: record for cid, record in relax.items() if record.get("status") == "done"}
@@ -1079,7 +1085,7 @@ def _termination_result(
         term_id=term,
         results_csv=directory / "results.csv",
         prescreen_csv=directory / "prescreen.csv",
-        n_candidates=len(candidates),
+        n_candidates=n_candidates,
         n_prescreened=sum(1 for record in prescreen.values() if record.get("status") in ("done", "failed")),
         n_relaxed=len(done),
         n_failed=sum(1 for record in relax.values() if record.get("status") == "failed"),
@@ -1402,6 +1408,65 @@ def make_figures(context: RunContext, surfaces: list[SurfaceModel], results: lis
     return directory
 
 
+def load_run_summary(run_dir: str | Path) -> tuple[AdsorptionConfig, list[SurfaceModel], list[TerminationResult]]:
+    """Configuration, surfaces and termination results of a run, read from its files.
+
+    Nothing is recomputed; used by ``ase-adsorb report``.
+    """
+
+    run_dir = Path(run_dir).resolve()
+    config = dataclasses.replace(load_config(run_dir / RESOLVED_CONFIG), run_dir=run_dir)
+    state = RunState.load(run_dir)
+    surfaces, results = [], []
+    for term, record in state.items.get("surface", {}).items():
+        directory = run_dir / "terminations" / term
+        if record.get("status") != "done" or not (directory / "slab.json").is_file():
+            continue
+        surfaces.append(SurfaceModel.from_dict(json.loads((directory / "slab.json").read_text(encoding="utf-8")), directory))
+        candidates_file = directory / "candidates.json"
+        n_candidates = len(json.loads(candidates_file.read_text(encoding="utf-8"))) if candidates_file.is_file() else 0
+        result = termination_result_from_state(state, run_dir, term, n_candidates)
+        results.append(_with_unique(result, directory))
+    return config, surfaces, results
+
+
+def _with_unique(result: TerminationResult, directory: Path) -> TerminationResult:
+    """Fill the analysis fields of a `TerminationResult` from ``unique.csv``."""
+
+    unique_csv = directory / "unique.csv"
+    if not unique_csv.is_file():
+        return result
+    with unique_csv.open(encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    counts: dict[str, int] = {}
+    for row in rows:
+        counts[row["class"]] = counts.get(row["class"], 0) + 1
+    best = rows[0] if rows else None
+    scan = directory / "approach_scan.csv"
+    return dataclasses.replace(
+        result,
+        unique_csv=unique_csv,
+        n_unique=len(rows),
+        best_unique_id=best["config_id"] if best else None,
+        best_eads=float(best["eads"]) if best else None,
+        best_class=best["class"] if best else None,
+        class_counts=tuple(counts.items()),
+        scan_csv=scan if scan.is_file() else None,
+    )
+
+
+def make_report(context: RunContext, draw_static: bool = False) -> Path | None:
+    """Animations and ``report.html`` (failures are logged, never raised)."""
+
+    try:
+        from .report import generate_report
+
+        return generate_report(context.run_dir, draw_static=draw_static)
+    except Exception as exc:  # noqa: BLE001 - the report must not lose finished results
+        logger.warning("report generation failed: %s: %s", type(exc).__name__, exc)
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Public entry point for the surface part of the workflow
 # ---------------------------------------------------------------------------
@@ -1441,6 +1506,7 @@ class AdsorptionResult:
     terminations: tuple[TerminationResult, ...]
     summary_csv: Path | None = None
     figures_dir: Path | None = None
+    report: Path | None = None
 
     @property
     def best(self) -> TerminationResult | None:
@@ -1483,6 +1549,7 @@ def _run(run_dir: Path, config: AdsorptionConfig | None) -> AdsorptionResult:
         context.state.set_stage("sampling", "done")
         summary_csv = write_summary(context, results)
         figures_dir = make_figures(context, surfaces, results)
+        report = make_report(context, draw_static=figures_dir is None)
         for result in results:
             logger.info(
                 "%s: %d candidates, %d prescreened, %d relaxed (%d failed), %d unique; most stable %s: E_ads %s (%s); "
@@ -1508,4 +1575,5 @@ def _run(run_dir: Path, config: AdsorptionConfig | None) -> AdsorptionResult:
             terminations=tuple(results),
             summary_csv=summary_csv,
             figures_dir=figures_dir,
+            report=report,
         )

@@ -16,6 +16,7 @@ from .config import (
     dump_config,
     load_config,
 )
+from .report import generate_report
 from .molecule import Anchor, MoleculeAnalysis, ReferenceAxis, analyze_molecule, generate_conformers
 from .sites import AdsorptionSite, find_sites
 from .workflow import (
@@ -49,6 +50,7 @@ __all__ = [
     "dump_config",
     "find_sites",
     "generate_conformers",
+    "generate_report",
     "load_config",
     "prepare_surfaces",
     "resume_adsorption_workflow",

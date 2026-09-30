@@ -629,7 +629,22 @@ Analysis of the fully relaxed configurations (per termination):
   `eads_site_anchor_heatmap_<term>.png`, `summary_<term>_<config>.png`
   (top 3) and `termination_comparison.png`.
 
-The `report`, `vasp` and `dft-collect` subcommands are not implemented yet.
+Report and animations: after the MLIP stages `run` writes `report.html`, a
+single self-contained file (images embedded) with the settings, timings and
+budget use, the molecule analysis with a reference-axis sketch, the angle
+definitions, per-termination tables and figures, the warnings, the VASP
+selection (once generated) and an embedded player of the most stable
+configuration's relaxation. With `analysis.make_gif: true` it also writes
+`figures/approach_<term>.gif` and `figures/relaxation_<term>_<config>.gif`
+(the most stable and the most stable intact configuration), each with a
+static `.png` of snapshots plus the energy curve, since many editors cannot
+show GIFs. Redraw everything from the files of a run, without calculations:
+
+```bash
+ase-adsorb report <run_dir> [--no-animations]
+```
+
+The `vasp` and `dft-collect` subcommands are not implemented yet.
 
 ## Outputs
 

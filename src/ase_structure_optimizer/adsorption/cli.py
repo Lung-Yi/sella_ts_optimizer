@@ -10,7 +10,6 @@ from pathlib import Path
 
 # Subcommands implemented in later milestones.
 _PLANNED = {
-    "report": ("Regenerate figures and report.html.", "M5"),
     "vasp": ("Select configurations and write VASP inputs.", "M6"),
     "dft-collect": ("Read VASP results and compare with the MLIP.", "M7"),
 }
@@ -72,6 +71,10 @@ def build_parser() -> argparse.ArgumentParser:
     resume = subparsers.add_parser("resume", help="Continue an interrupted run.")
     resume.add_argument("run_dir", type=Path, help="Run directory containing state.json.")
 
+    report = subparsers.add_parser("report", help="Redraw the figures and write report.html (no calculations).")
+    report.add_argument("run_dir", type=Path, help="Run directory containing state.json.")
+    report.add_argument("--no-animations", action="store_true", help="Skip the GIF and HTML animations.")
+
     for name, (description, milestone) in _PLANNED.items():
         planned = subparsers.add_parser(name, help=f"{description} (not implemented yet, {milestone})")
         planned.add_argument("args", nargs="*", help=argparse.SUPPRESS)
@@ -100,6 +103,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command in ("run", "resume"):
         return _run(parser, args)
+    if args.command == "report":
+        return _report(args)
 
     description, milestone = _PLANNED[args.command]
     print(f"ase-adsorb {args.command}: not implemented yet (planned for milestone {milestone}).", file=sys.stderr)
@@ -177,6 +182,29 @@ def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         print(f"Summary: {result.summary_csv}")
     if result.figures_dir is not None:
         print(f"Figures: {result.figures_dir}")
+    if result.report is not None:
+        print(f"Report: {result.report}")
+    return 0
+
+
+def _report(args: argparse.Namespace) -> int:
+    from .config import ConfigError
+    from .report import generate_report
+    from .state import StateError
+    from .workflow import run_logging
+
+    run_dir = args.run_dir.expanduser().resolve()
+    if not (run_dir / "state.json").is_file():
+        print(f"ase-adsorb report: {run_dir} is not a run directory (no state.json)", file=sys.stderr)
+        return 1
+    try:
+        with run_logging(run_dir):
+            path = generate_report(run_dir, draw_animations=not args.no_animations)
+    except (ConfigError, StateError, FileNotFoundError) as exc:
+        print(f"ase-adsorb report: {exc}", file=sys.stderr)
+        return 1
+    print(f"Report: {path}")
+    print(f"Figures: {run_dir / 'figures'}")
     return 0
 
 

@@ -427,3 +427,289 @@ def _view_region(atoms, n_slab: int, top_only: bool = False):
     depth = 3.0 if top_only else 6.0
     keep = [i for i in range(n_slab) if z[i] >= z.max() - depth] + list(range(n_slab, len(atoms)))
     return atoms[keep]
+
+
+# ---------------------------------------------------------------------------
+# Animations (with static versions; IDEs often cannot show GIFs)
+# ---------------------------------------------------------------------------
+
+MAX_ANIMATION_FRAMES = 80
+STATIC_PANELS = 4
+
+
+def frame_indices(n_frames: int, max_frames: int = MAX_ANIMATION_FRAMES) -> list[int]:
+    """Evenly spaced frame indices (first and last included), at most `max_frames`."""
+
+    if n_frames <= max_frames:
+        return list(range(n_frames))
+    return sorted({int(round(i)) for i in np.linspace(0, n_frames - 1, max_frames)})
+
+
+def _fixed_region(frames, n_slab: int):
+    """Same atom selection (molecule + upper slab layers of the first frame) for every frame."""
+
+    z = frames[0].positions[:n_slab, 2]
+    keep = [i for i in range(n_slab) if z[i] >= z.max() - 6.0] + list(range(n_slab, len(frames[0])))
+    return [_plottable(frame)[keep] for frame in frames]
+
+
+def _view_limits(ax, frames, rotation: str):
+    """Axis limits covering the first and last frame, so the view does not jump."""
+
+    from ase.visualize.plot import plot_atoms
+
+    limits = []
+    for frame in (frames[0], frames[-1]):
+        ax.clear()
+        plot_atoms(frame, ax, rotation=rotation, show_unit_cell=0)
+        limits.append((ax.get_xlim(), ax.get_ylim()))
+    ax.clear()
+    x = (min(l[0][0] for l in limits), max(l[0][1] for l in limits))
+    y = (min(l[1][0] for l in limits), max(l[1][1] for l in limits))
+    return x, y
+
+
+def _animation(frames, x_values, y_values, x_label, y_label, title, reference=None, dpi: int = 90):
+    """Figure and FuncAnimation: structure (side view) left, energy curve right."""
+
+    plt = _pyplot()
+    from matplotlib.animation import FuncAnimation
+    from ase.visualize.plot import plot_atoms
+
+    rotation = "-90x"
+    fig, (structure_ax, curve_ax) = plt.subplots(1, 2, figsize=(10.0, 4.2), dpi=dpi,
+                                                 gridspec_kw={"width_ratios": [1.2, 1.0]})
+    x_limits, y_limits = _view_limits(structure_ax, frames, rotation)
+    curve_ax.plot(x_values, y_values, color=GRID, linewidth=2, zorder=1)
+    if reference is not None:
+        curve_ax.axhline(reference[0], color=CLASS_COLORS["dissociated"], linestyle="--", linewidth=1.5,
+                         label=reference[1])
+        curve_ax.legend(loc="best")
+    (trace,) = curve_ax.plot([], [], color=CATEGORICAL[0], linewidth=2, zorder=2)
+    (marker,) = curve_ax.plot([], [], "o", color=CATEGORICAL[0], markersize=8, markeredgecolor=SURFACE, zorder=3)
+    curve_ax.set_xlabel(x_label)
+    curve_ax.set_ylabel(y_label)
+    fig.suptitle(title, fontsize=11, color=INK)
+
+    def update(index):
+        structure_ax.clear()
+        plot_atoms(frames[index], structure_ax, rotation=rotation, show_unit_cell=0)
+        structure_ax.set_xlim(*x_limits)
+        structure_ax.set_ylim(*y_limits)
+        structure_ax.set_axis_off()
+        trace.set_data(x_values[: index + 1], y_values[: index + 1])
+        marker.set_data([x_values[index]], [y_values[index]])
+        return trace, marker
+
+    fig.tight_layout()
+    animation = FuncAnimation(fig, update, frames=len(frames), interval=120, blit=False)
+    return fig, animation
+
+
+def _static_strip(frames, x_values, y_values, x_label, y_label, title, path: Path, reference=None) -> Path:
+    """Static stand-in for an animation: a few snapshots above the full energy curve."""
+
+    plt = _pyplot()
+    from ase.visualize.plot import plot_atoms
+
+    picks = sorted({int(round(i)) for i in np.linspace(0, len(frames) - 1, min(STATIC_PANELS, len(frames)))})
+    fig = plt.figure(figsize=(11.0, 6.4))
+    grid = fig.add_gridspec(2, len(picks), height_ratios=[1.0, 1.0])
+    probe = fig.add_subplot(grid[0, 0])
+    x_limits, y_limits = _view_limits(probe, frames, "-90x")
+    probe.remove()
+    for column, index in enumerate(picks):
+        ax = fig.add_subplot(grid[0, column])
+        plot_atoms(frames[index], ax, rotation="-90x", show_unit_cell=0)
+        ax.set_xlim(*x_limits)
+        ax.set_ylim(*y_limits)
+        ax.set_axis_off()
+        ax.set_title(f"{x_label.split(' (')[0]} {x_values[index]:.3g}", fontsize=9, color=INK_SECONDARY)
+    curve = fig.add_subplot(grid[1, :])
+    curve.plot(x_values, y_values, color=CATEGORICAL[0], linewidth=2)
+    curve.plot([x_values[i] for i in picks], [y_values[i] for i in picks], "o", color=CATEGORICAL[0],
+               markersize=8, markeredgecolor=SURFACE)
+    if reference is not None:
+        curve.axhline(reference[0], color=CLASS_COLORS["dissociated"], linestyle="--", linewidth=1.5,
+                      label=reference[1])
+        curve.legend(loc="best")
+    curve.set_xlabel(x_label)
+    curve.set_ylabel(y_label)
+    fig.suptitle(title, fontsize=11, color=INK)
+    fig.tight_layout()
+    fig.savefig(path, dpi=DPI)
+    plt.close(fig)
+    return path
+
+
+def _relaxation_data(term_dir: Path, config_id: str, n_slab: int, e_slab_screen: float, e_mol_screen: float,
+                     max_frames: int = MAX_ANIMATION_FRAMES):
+    from ase.io import read
+
+    trajectory = read(term_dir / "relax" / f"{config_id}.traj", index=":")
+    picks = frame_indices(len(trajectory), max_frames)
+    frames = _fixed_region([trajectory[i] for i in picks], n_slab)
+    energies = [trajectory[i].get_potential_energy() - e_slab_screen - e_mol_screen for i in picks]
+    return frames, [float(i) for i in picks], energies
+
+
+def relaxation_animation(term: str, config_id: str, term_dir: Path, n_slab: int, e_slab_screen: float,
+                         e_mol_screen: float, gif_path: Path, static_path: Path) -> tuple[Path, Path]:
+    """``relaxation_<term>_<config>.gif`` and its static PNG."""
+
+    plt = _pyplot()
+    from matplotlib.animation import PillowWriter
+
+    frames, steps, energies = _relaxation_data(term_dir, config_id, n_slab, e_slab_screen, e_mol_screen)
+    title = f"{term} {config_id}: relaxation"
+    labels = ("optimization step", "E_ads (eV, screening dtype)")
+    fig, animation = _animation(frames, steps, energies, *labels, title)
+    animation.save(gif_path, writer=PillowWriter(fps=8))
+    plt.close(fig)
+    _static_strip(frames, steps, energies, *labels, title, static_path)
+    return gif_path, static_path
+
+
+def approach_animation(term: str, term_dir: Path, n_slab: int, relaxed_eads: float, gif_path: Path,
+                       static_path: Path) -> tuple[Path, Path]:
+    """``approach_<term>.gif`` (rigid scan, farthest to closest) and its static PNG."""
+
+    plt = _pyplot()
+    from ase.io import read
+    from matplotlib.animation import PillowWriter
+
+    scan = read(term_dir / "approach_scan.extxyz", index=":")[::-1]
+    clearance = [float(frame.info["clearance"]) for frame in scan]
+    rows = {round(float(r["clearance"]), 4): float(r["eads"]) for r in read_rows(term_dir / "approach_scan.csv")}
+    eads = [rows[round(c, 4)] for c in clearance]
+    frames = _fixed_region(scan, n_slab)
+    reference = (relaxed_eads, f"relaxed E_ads {relaxed_eads:.2f} eV")
+    title = f"{term}: rigid approach of the gas-phase molecule"
+    labels = ("clearance (Å)", "E_ads (eV)")
+    fig, animation = _animation(frames, clearance, eads, *labels, title, reference=reference)
+    fig.axes[1].invert_xaxis()  # the molecule approaches: clearance decreases left to right
+    animation.save(gif_path, writer=PillowWriter(fps=6))
+    plt.close(fig)
+    _static_strip(frames, clearance, eads, *labels, title, static_path, reference=reference)
+    return gif_path, static_path
+
+
+def relaxation_jshtml(term: str, config_id: str, term_dir: Path, n_slab: int, e_slab_screen: float,
+                      e_mol_screen: float, max_frames: int = 40) -> str:
+    """Self-contained HTML/JavaScript player of a relaxation (``FuncAnimation.to_jshtml``)."""
+
+    plt = _pyplot()
+
+    frames, steps, energies = _relaxation_data(term_dir, config_id, n_slab, e_slab_screen, e_mol_screen, max_frames)
+    fig, animation = _animation(frames, steps, energies, "optimization step", "E_ads (eV, screening dtype)",
+                                f"{term} {config_id}: relaxation", dpi=72)
+    html = animation.to_jshtml(fps=6, default_mode="once")
+    plt.close(fig)
+    return html
+
+
+# ---------------------------------------------------------------------------
+# Schematics for the report
+# ---------------------------------------------------------------------------
+
+
+def plot_molecule_axis(molecule, analysis, path: Path) -> Path:
+    """Molecule drawn with the reference axis u pointing up, fragments labeled."""
+
+    plt = _pyplot()
+    from ase.data import covalent_radii
+    from ase.data.colors import jmol_colors
+
+    positions = molecule.get_positions() - molecule.get_positions().mean(axis=0)
+    axis = analysis.reference_axis.vector(molecule)
+    if axis is not None:
+        # Rotate so that u points along +y; x is any perpendicular direction.
+        helper = np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 0.0, 1.0])
+        x = np.cross(axis, helper)
+        x /= np.linalg.norm(x)
+        depth = np.cross(x, axis)
+        basis = np.vstack([x, axis, depth])
+        positions = positions @ basis.T
+    fig, ax = plt.subplots(figsize=(4.8, 4.8))
+    ax.set_facecolor(SURFACE)
+    for i, j, _ in analysis.bonds:
+        ax.plot(positions[[i, j], 0], positions[[i, j], 1], color=INK_SECONDARY, linewidth=1.2, zorder=1)
+    order = np.argsort(positions[:, 2])
+    for index in order:
+        number = molecule.numbers[index]
+        ax.scatter(positions[index, 0], positions[index, 1], s=(covalent_radii[number] * 38) ** 2 / 4,
+                   color=jmol_colors[number], edgecolors=INK, linewidths=0.6, zorder=2)
+    for fragment in analysis.fragments:
+        center = positions[list(fragment.indices)].mean(axis=0)
+        ax.annotate(fragment.name, center[:2], xytext=(10, -12), textcoords="offset points", fontsize=8,
+                    color=INK, zorder=4)
+    for index in analysis.metal_indices:
+        ax.annotate(f"{analysis.symbols[index]}{index}", positions[index, :2], xytext=(8, 6),
+                    textcoords="offset points", fontsize=8, color=INK, zorder=4)
+    if axis is not None:
+        method = analysis.reference_axis.method
+        if method in ("principal", "plane_normal"):
+            start = positions.mean(axis=0)
+            length = 0.6 * (np.ptp(positions[:, 1]) or 1.0)
+        else:
+            start = positions[list(analysis.reference_axis.start)].mean(axis=0)
+            end = positions[list(analysis.reference_axis.end)].mean(axis=0)
+            length = 1.4 * np.linalg.norm((end - start)[:2])
+        tip = (start[0], start[1] + length)
+        ax.annotate("", xy=tip, xytext=(start[0], start[1]),
+                    arrowprops={"arrowstyle": "-|>", "color": CLASS_COLORS["dissociated"], "linewidth": 2.5},
+                    zorder=5)
+        ax.text(tip[0] + 0.2, tip[1], "u", color=CLASS_COLORS["dissociated"], fontsize=13, fontweight="bold")
+        ax.update_datalim([tip, (tip[0] + 0.6, tip[1] + 0.3)])
+        ax.autoscale_view()
+    ax.set_title(f"reference axis: {analysis.reference_axis.method}")
+    ax.set_aspect("equal")
+    ax.set_axis_off()
+    fig.tight_layout()
+    fig.savefig(path, dpi=DPI)
+    plt.close(fig)
+    return path
+
+
+def plot_angle_definition(path: Path, directional: bool = True) -> Path:
+    """Schematic of the tilt angle θ (side views) and the azimuth φ (top view)."""
+
+    plt = _pyplot()
+    angles = (0, 90, 180) if directional else (0, 45, 90)
+    notes = {0: "u away from surface", 45: "tilted", 90: "u parallel to surface", 180: "u toward surface"}
+    fig, axes = plt.subplots(1, 4, figsize=(11.0, 3.0))
+    for ax, angle in zip(axes[:3], angles):
+        ax.add_patch(plt.Rectangle((-1.2, -0.6), 2.4, 0.4, color="#d9d7cf"))
+        ax.annotate("", xy=(-0.9, 1.1), xytext=(-0.9, -0.2),
+                    arrowprops={"arrowstyle": "-|>", "color": INK_SECONDARY, "linewidth": 1.2})
+        ax.text(-0.85, 1.05, "z", color=INK_SECONDARY, fontsize=9)
+        radians = np.radians(angle)
+        start = np.array([0.2, 0.3 if angle < 150 else 1.0])
+        tip = start + 0.7 * np.array([np.sin(radians), np.cos(radians)])
+        ax.annotate("", xy=tip, xytext=start,
+                    arrowprops={"arrowstyle": "-|>", "color": CLASS_COLORS["dissociated"], "linewidth": 2.2})
+        ax.text(*(tip + [0.05, 0.05]), "u", color=CLASS_COLORS["dissociated"], fontsize=11, fontweight="bold")
+        ax.set_title(f"θ = {angle}°\n{notes[angle]}", fontsize=9)
+        ax.set_xlim(-1.3, 1.3)
+        ax.set_ylim(-0.7, 1.5)
+        ax.set_aspect("equal")
+        ax.set_axis_off()
+    ax = axes[3]
+    ax.annotate("", xy=(1.0, 0.0), xytext=(-0.2, 0.0),
+                arrowprops={"arrowstyle": "-|>", "color": INK_SECONDARY, "linewidth": 1.2})
+    ax.text(1.0, -0.2, "a", color=INK_SECONDARY, fontsize=10)
+    phi = np.radians(55)
+    ax.annotate("", xy=(0.9 * np.cos(phi), 0.9 * np.sin(phi)), xytext=(0, 0),
+                arrowprops={"arrowstyle": "-|>", "color": CATEGORICAL[0], "linewidth": 2.2})
+    arc = np.linspace(0, phi, 30)
+    ax.plot(0.35 * np.cos(arc), 0.35 * np.sin(arc), color=INK_SECONDARY, linewidth=1)
+    ax.text(0.42, 0.18, "φ", fontsize=11, color=INK)
+    ax.set_title("top view: φ = second axis\nprojected, from cell vector a", fontsize=9)
+    ax.set_xlim(-0.4, 1.3)
+    ax.set_ylim(-0.4, 1.1)
+    ax.set_aspect("equal")
+    ax.set_axis_off()
+    fig.tight_layout()
+    fig.savefig(path, dpi=DPI)
+    plt.close(fig)
+    return path
