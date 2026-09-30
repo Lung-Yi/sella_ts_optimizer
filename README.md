@@ -77,8 +77,9 @@ For both:
 pip install -e ".[all]"
 ```
 
-For the shared tools used by the (upcoming) adsorption workflow, such as bond
-graphs (`networkx`) and MACE-MP with D3 dispersion (`torch-dftd`):
+For the adsorption workflow (`ase-adsorb`, see
+[Adsorption Workflow](#adsorption-workflow)): pymatgen, bond graphs (`networkx`),
+PyYAML, plotting, and MACE-MP with D3 dispersion (`torch-dftd`):
 
 ```bash
 pip install -e ".[adsorption]"
@@ -519,133 +520,506 @@ Bond-graph helpers in `ase_structure_optimizer.graphs` (need `networkx`):
 - `same_connectivity(g1, g2)` and `graph_hash(graph, symbols)`: compare bond
   graphs index-wise or independent of atom order.
 
-## Adsorption Workflow (in development)
+## Adsorption Workflow
 
-The `ase_structure_optimizer.adsorption` subpackage and the `ase-adsorb`
-command (also `python run_ase_adsorption.py`) automate molecule-on-surface
-adsorption sampling with periodic MLIPs. They need the `[adsorption]` extra.
-Currently available:
+`ase-adsorb` (Python package `ase_structure_optimizer.adsorption`) finds how
+a molecule adsorbs on a solid surface. You give it a gas-phase molecule
+(`.xyz`) and a crystal or pre-cut slab (`.cif`); it builds the surfaces,
+generates hundreds of initial adsorption configurations, screens and relaxes
+them with a periodic machine-learned interatomic potential (MLIP) within a
+time budget, classifies the results, and writes CSV tables, figures and a
+self-contained `report.html`.
 
-```bash
-# Inspect the inferred bonds, ligand fragments, anchor points and reference
-# axis of the adsorbate before running anything.
-ase-adsorb check-molecule molecule.xyz [--config config.yaml] [--bond-scale 1.2] [--json analysis.json]
-
-# Print (or write) the annotated configuration template with all defaults.
-ase-adsorb init-config > config.yaml
+```text
+molecule.xyz + solid.cif
+-> molecule analysis: bonds, ligand fragments, anchor points, reference axis u
+-> gas-phase reference: molecule relaxed in a periodic box -> E_mol
+-> bulk relaxation (cell + atoms) -> slab terminations (pymatgen)
+-> slab supercells, bottom layers fixed, relaxed -> E_slab, adsorption sites
+-> initial configurations: site x anchor x rotation, plus random orientations
+-> prescreening (short relaxations) within the time budget
+-> full relaxations of the most promising, diverse configurations
+-> final single points: E_ads = E(slab+mol) - E(slab) - E(mol)
+-> classification, angles, de-duplication, Boltzmann weights, approach scan
+-> results.csv / unique.csv / summary.csv, figures/, report.html
 ```
 
-Only `molecule` and `solid` are required in the configuration file. Molecular
-calculators (`maceomol`, `aimnet2`, `eSEN`, UMA `omol`, `xtb`, Q-Chem) are
-rejected when the file is loaded. From Python:
+The energies come from an MLIP. They are a screening tool: validate the
+configurations you care about with DFT (VASP input generation is the next
+development milestone).
+
+### Step 0: environment and model files
+
+Install the package with the adsorption extra (once, from the repository):
+
+```bash
+pip install -e ".[adsorption]"
+```
+
+Every new terminal needs the Python environment in which the package is
+installed. With conda:
+
+```bash
+conda activate transformervae
+```
+
+If this prints `CondaError: Run 'conda init' before 'conda activate'`, the
+shell has not been set up for conda. Either run `conda init bash` once and
+open a new terminal, or load conda into the current shell:
+
+```bash
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate transformervae
+```
+
+Check that the command is found:
+
+```bash
+ase-adsorb --help
+```
+
+Without installing, `python run_ase_adsorption.py ...` from the repository
+root does the same as `ase-adsorb ...`.
+
+**MLIP model files.** The default calculator `macemp` (MACE-MP family,
+periodic materials models) downloads `medium-mpa-0` on first use, which can
+be very slow. Download model files once and point the configuration at the
+local file instead (`calculator.mace_mp_model: /path/to/file.model`). Models
+tested with this workflow:
+
+| model file | `dispersion_xc` | notes |
+|---|---|---|
+| `~/.cache/mace/MACE-matpes-r2scan-omat-ft.model` | `r2scan` | r2SCAN-level (MatPES); keeps eta5-Cp intact; recommended for organometallic adsorbates |
+| `~/.cache/mace/mace-mp-0b3-medium.model` | `pbe` | PBE-level (MPtrj); slips eta5-Cp to eta2 in the gas phase and decomposes CpMo(CO)3H on TiSi |
+
+`dispersion_xc` must match the functional the model was trained on, because
+it selects the D3(BJ) damping parameters. UMA models (`uma_s`, `uma_m` with
+`uma_task: oc20` or `omat`) also work but need a Hugging Face account with
+access to the model repository.
+
+A CUDA GPU is used automatically when available (`calculator.device: auto`).
+For the TiSi example (240-atom slab, 18-atom molecule) one force call takes
+about 0.13 s on a laptop RTX 3070 Ti.
+
+### Step 1: check the molecule
+
+The workflow decides "which parts of the molecule can point at the surface"
+and "is the molecule still intact" from its bond graph. Check the graph
+before running anything, especially for metal complexes:
+
+```bash
+ase-adsorb check-molecule CpMo_CO3H.xyz
+```
+
+It prints the atoms, all bonds with lengths, the ligand fragments (for a
+metal complex the connected pieces after removing the metal, e.g. `C5H5`,
+`CO_1`, `CO_2`, `CO_3`, `H`), the anchor points, and the reference axis u.
+Check that:
+
+- every chemical bond is listed, and no bond is listed that should not be
+  (e.g. all five Mo-C bonds of an eta5-Cp ring must appear);
+- the fragments are the ligands you expect;
+- no warning such as "the bond graph has N disconnected parts" appears.
+
+Atoms are bonded when `distance < bond_scale * (r_cov,i + r_cov,j)` (covalent
+radii; `bond_scale` defaults to 1.2). Fix wrong bonds in the configuration
+file and check again:
+
+```yaml
+molecule_props:
+  bond_scale: 1.2
+  bond_overrides: [[0, 8, true], [2, 7, false]]   # force atoms 0-8 bonded, 2-7 not bonded
+  reference_axis: [[0], [8, 9, 10, 11, 12]]       # optional: u = centroid(atoms A) -> centroid(atoms B)
+```
+
+```bash
+ase-adsorb check-molecule CpMo_CO3H.xyz --config config.yaml
+ase-adsorb check-molecule CpMo_CO3H.xyz --bond-scale 1.3 --json analysis.json
+```
+
+Atom indices start at 0, in the order of the `.xyz` file.
+
+### Step 2: write the configuration file
+
+```bash
+ase-adsorb init-config -o config.yaml
+```
+
+writes a commented template containing every setting with its default. Only
+`molecule` and `solid` are required; delete everything you do not want to
+change. A typical file:
+
+```yaml
+molecule: CpMo_CO3H.xyz        # relative paths are relative to this file
+solid: TiSi.cif
+calculator:
+  name: macemp
+  mace_mp_model: /home/lungyi/.cache/mace/MACE-matpes-r2scan-omat-ft.model
+  fallback_models: []          # do not fall back to (downloaded) default models
+  dispersion: true
+  dispersion_xc: r2scan
+surface:
+  miller_indices: [[0, 0, 1]]  # several: [[0, 0, 1], [1, 0, 0]]
+budget:
+  wall_time_per_termination: 600   # seconds of sampling per termination
+```
+
+Miller indices refer to the cell axes of the input CIF when it is a
+conventional cell (e.g. the TiSi CIF with a = 6.54, b = 3.64, c = 5.00 Å);
+a primitive cell such as `ase.build.bulk("Cu")` is first converted to the
+conventional cell. The log says which convention was used.
+
+Molecular calculators (`maceomol`, `aimnet2`, `eSEN`, UMA with `omol`, `xtb`,
+Q-Chem) cannot describe surfaces and are rejected when the file is loaded.
+All settings are listed in [Configuration reference](#configuration-reference).
+
+### Step 3: run
+
+```bash
+ase-adsorb run config.yaml 2>&1 | tee run.log
+```
+
+Command-line options override the file, or replace it for quick runs:
+
+```bash
+ase-adsorb run config.yaml --budget 1200 --miller 1 0 0
+ase-adsorb run --molecule CpMo_CO3H.xyz --solid TiSi.cif \
+  --calculator macemp --mace-mp-model ~/.cache/mace/MACE-matpes-r2scan-omat-ft.model \
+  --miller 0 0 1 --budget 600 --run-dir runs/cpmo_tisi
+```
+
+Options: `--molecule`, `--solid`, `--calculator`, `--mace-mp-model`,
+`--uma-task`, `--device`, `--miller H K L` (repeatable), `--budget`
+(seconds per termination, 0 = unlimited), `--run-dir`. `dispersion_xc` and
+all other settings are set in the configuration file.
+
+The results go to `<molecule>_on_<solid>_<calculator>/` next to the molecule
+file (for example `CpMo_CO3H_on_TiSi_macemp/`), or to `run_dir`. A run
+directory is never reused: to repeat a calculation, rename the old directory
+or give another `--run-dir`.
+
+How long it takes: surface preparation takes about a minute; then each
+termination takes about `wall_time_per_termination` (default 600 s) plus the
+analysis, figures and report (a few minutes). The TiSi(001) example with two
+terminations finishes in about 25 minutes.
+
+Follow the progress in another terminal:
+
+```bash
+tail -f CpMo_CO3H_on_TiSi_macemp/adsorption.log
+```
+
+### Step 4: if the run was interrupted
+
+`Ctrl+C`, a closed terminal or a crash leave a consistent `state.json`.
+Continue with:
+
+```bash
+ase-adsorb resume CpMo_CO3H_on_TiSi_macemp
+```
+
+Finished structures are reused, the configuration that was running is
+restarted, and the time budget of a termination counts the time already
+spent. `resume` reads the run's own `config.resolved.yaml` and the copies of
+the input files in `inputs/`, so the run directory can be moved or copied
+before resuming. `resume` refuses to continue if the calculator, surface,
+sampling or molecule settings in `config.resolved.yaml` were edited (the
+results would be mixed); start a new run instead.
+
+### Step 5: read the results
+
+Open `report.html` in a web browser. It is a single file (all images
+embedded) with:
+
+- the most stable configuration of each termination, and the most stable
+  intact one when the overall best is a dissociated structure;
+- the settings, time spent per stage and budget use;
+- the molecule: fragments, bonds, anchors, and a sketch of the reference axis;
+- the definitions of the angles;
+- per termination: slab details, the table of unique configurations, the
+  figures, and snapshots of the relaxation and approach animations;
+- all warnings of the run, and notes on MLIP limitations;
+- a player that animates the relaxation of the most stable configuration.
+
+The tables are also CSV files for your own analysis:
+
+| file | content |
+|---|---|
+| `summary.csv` | unique configurations of all terminations, sorted by `eads` |
+| `terminations/<term>/unique.csv` | unique configurations of one termination, with Boltzmann weights |
+| `terminations/<term>/results.csv` | every fully relaxed configuration (duplicates included) |
+| `terminations/<term>/prescreen.csv` | the prescreened configurations |
+
+Important columns:
+
+- `eads`: adsorption energy in eV (final dtype); negative = exothermic.
+  `eads_screen` is the same with the faster screening dtype.
+- `class`: `chemisorbed` (intact, touching the surface), `physisorbed`
+  (intact, not touching), `dissociated` (bonds of the molecule changed), or
+  `desorbed` (left the surface). `class_reason` explains a dissociation,
+  e.g. `H detached from Mo0` or `broken C1-O2`.
+- `contact`: fragments touching the surface, e.g. `CO_1+CO_2`, `C5H5`, `Mo`
+  (the metal atom itself), `none`.
+- `tilt` (θ, degree): angle between the reference axis u and the surface
+  normal. 0° = u points away from the surface, 180° = toward it, 90° =
+  parallel. For CpMo(CO)3H u points from Mo to the Cp ring, so θ ≈ 0° means
+  "Cp up, CO legs down" and θ ≈ 180° means "Cp down".
+- `azimuth` (φ, degree): in-plane orientation, measured from cell vector a.
+- `height` (Å): molecule center (metal atom, else center of mass) above the
+  topmost slab atom.
+- `boltzmann_weight`: relative population at `analysis.temperature`.
+- `n_duplicates` / `duplicates`: equivalent configurations that were merged.
+- `converged`, `steps`: whether the relaxation reached `fmax` within `max_steps`.
+- `surface_distorted`: a free slab atom moved by more than 1 Å.
+- `site_id`, `anchor`, `initial_tilt`: how the configuration started.
+
+Structures:
+
+| path | content |
+|---|---|
+| `terminations/<term>/relax/<config>.extxyz` | relaxation trajectory (text; `.traj` is the binary ASE version) |
+| `terminations/<term>/relax/<config>_final.extxyz` | relaxed structure with its final-dtype energy |
+| `terminations/<term>/candidates/<config>.extxyz` | initial configuration |
+| `terminations/<term>/slab_opt_final.extxyz` | relaxed clean slab |
+| `molecule/gas_opt_final.extxyz` | relaxed gas-phase molecule |
+
+Open `.extxyz` files with ASE (`ase gui file.extxyz`), OVITO or VESTA. All
+structures and energies are also in the ASE database `results.db`:
+
+```bash
+ase db results.db kind=adsorbate adsorption_class=chemisorbed -c name,eads,contact,tilt -s eads
+```
 
 ```python
-from ase_structure_optimizer.adsorption import analyze_molecule, load_config
-from ase_structure_optimizer.structures import read_structure
+from ase.db import connect
+
+with connect("results.db") as db:
+    for row in db.select(kind="adsorbate", sort="eads"):
+        atoms = row.toatoms()
+        print(row.name, row.eads, row.adsorption_class, row.contact)
+```
+
+Figures in `figures/`: `eads_ranking_<term>.png` (E_ads of the unique
+configurations colored by class), `eads_vs_tilt_<term>.png`,
+`eads_site_anchor_heatmap_<term>.png` (lowest E_ads per initial site and
+anchor), `summary_<term>_<config>.png` (side and top view, relaxation
+curve, approach scan), `termination_comparison.png`, the molecule and angle
+sketches, and `approach_<term>.gif` / `relaxation_<term>_<config>.gif` with a
+static `.png` version each.
+
+Redraw all figures and the report from the files of a run, without any
+calculation (e.g. after updating the package):
+
+```bash
+ase-adsorb report CpMo_CO3H_on_TiSi_macemp
+ase-adsorb report CpMo_CO3H_on_TiSi_macemp --no-animations   # faster
+```
+
+### How the workflow works
+
+- **Molecule.** Bonds from covalent radii; ligand fragments are the pieces
+  left after removing transition-metal atoms. Anchors (the points that can
+  be turned toward the surface) are fragment and ring centroids, the metal
+  atom (turned with its least-coordinated side down), hydrides, heteroatoms
+  and terminal atoms. The reference axis u is user-defined, or metal ->
+  largest ring bonded to it, or metal -> heaviest ligand, or the long axis
+  of a metal-free molecule (the plane normal for planar symmetric molecules).
+- **Gas-phase reference.** The molecule is relaxed in a periodic box (edges =
+  size + `vasp.molecule_box_padding`) with the same calculator; its final
+  single-point energy is E_mol. If the MLIP changes the molecule's bonds
+  there (e.g. MACE-MP-0b3 slipping an eta5-Cp ring), E_mol is still the
+  MLIP minimum, but the input geometry is used for sampling and as the
+  intact reference, and the report shows a warning.
+- **Surfaces.** A bulk input is relaxed together with its cell, cut into all
+  terminations with pymatgen, and the terminations are ranked by MLIP surface
+  energy (at most `max_terminations` kept, named `<miller>_t<i>` with `t0` the
+  most stable). Each slab is at least `min_slab_thickness` thick, repeated
+  laterally until both in-plane widths reach `min_lateral` (auto: molecule
+  size + `lateral_buffer`), given `vacuum_above` of vacuum, relaxed with
+  `fix_fraction` of its atoms (whole bottom layers) fixed. Ontop, bridge and
+  hollow sites are found per termination, symmetry-inequivalent, near the
+  cell center.
+- **Initial configurations.** For every site x anchor x
+  `spins_per_anchor` rotations the anchor is turned toward the surface and
+  placed above the site; `n_random` random orientations are added. The
+  molecule is lowered until its closest atom is at `contact_gap`
+  (auto: 0.9 x the sum of van der Waals radii). Clashes, contact with the
+  molecule's periodic images and duplicates are removed.
+- **Time budget.** The step time is measured; prescreening (short
+  `prescreen_steps` relaxations) uses `prescreen_fraction` of
+  `wall_time_per_termination`, choosing at least one configuration per site
+  type x anchor. The best of each contact type is then fully relaxed first,
+  then the rest by energy, until `prescreen_fraction + relax_fraction` of the
+  budget is used. Configurations that crash, give NaN, collapse (atoms
+  < 0.5 Å apart) or fly away (> 10 Å) are marked failed with a reason.
+- **Analysis.** Final-dtype single points, classification, angles, merging of
+  equivalent configurations (same class and contact, |ΔE_ads| <
+  `dedup_energy_tol`, RMSD up to lattice translations < `dedup_rmsd_tol`),
+  Boltzmann weights, and a rigid approach scan: the intact molecule in the
+  initial orientation of the most stable intact configuration, lowered from
+  7 Å to 1.5 Å above the surface. The scan should level off near 0 eV far
+  from the surface; a different plateau means E_mol belongs to a different
+  molecular geometry (see the gas-phase warning).
+
+A metal complex counts as intact as long as the bonds inside every ligand
+are unchanged and every ligand is still bonded to its metal atom, so a
+change of hapticity (eta5 -> eta3 Cp) is not a dissociation, but a hydride
+or CO leaving the metal is.
+
+### Choosing and comparing calculators
+
+- Use a periodic model trained at a level of theory you trust for both the
+  surface and the molecule. Compare models on the same system: run once per
+  model (each run gets its own directory) and compare `summary.csv`, the
+  fraction of intact configurations, the adsorption heights and whether the
+  approach scan levels off at 0 eV.
+- Energies from different models, tasks (UMA `oc20` vs `omat`) or D3
+  settings must never be combined into one E_ads. Absolute E_ads from
+  different models are not directly comparable; compare the ranking of
+  binding modes and their geometry.
+- Periodic MLIPs see almost no isolated molecules in training, so E_mol is an
+  extrapolation and shifts all E_ads of a run by the same amount.
+- Example (CpMo(CO)3H on TiSi(001), 600 s per termination, D3 on): with
+  MACE-MP-0b3 the Cp ring slips in the gas phase and 8 of 13 relaxed
+  structures decompose with E_ads down to -9.5 eV; with the r2SCAN MatPES
+  model the gas-phase molecule stays eta5 and 24 of 25 relaxed structures
+  stay intact, binding through CO legs or the Cp ring with E_ads of -0.4 to
+  -3.0 eV.
+
+### Configuration reference
+
+All settings with their defaults (`ase-adsorb init-config` prints the same
+with comments). Lengths in Å, energies in eV, angles in degrees, times in s.
+
+| setting | default | meaning |
+|---|---|---|
+| `molecule` | required | gas-phase molecule (`.xyz`) |
+| `solid` | required | bulk crystal or pre-cut slab (`.cif`) |
+| `run_dir` | `null` | output directory; `null` = `<molecule>_on_<solid>_<calculator>` next to the molecule |
+| **molecule_props** | | |
+| `charge`, `multiplicity` | `0`, `1` | total charge and spin multiplicity of the molecule |
+| `bond_scale` | `1.2` | bonded if `d < bond_scale * (r_cov,i + r_cov,j)` |
+| `bond_overrides` | `[]` | `[[i, j, true/false], ...]` force bonds on/off |
+| `reference_axis` | `auto` | or `[[atoms A], [atoms B]]`: u = centroid(A) -> centroid(B) |
+| **calculator** | | must be periodic |
+| `name` | `macemp` | `macemp`, `uma_s`, `uma_m`, `emt` (tests only) |
+| `mace_mp_model` | `medium-mpa-0` | model name or local model file |
+| `fallback_models` | `[medium, small]` | tried if the model cannot be loaded; `[]` to disable |
+| `uma_task` | `oc20` | `oc20` (adsorbate + surface) or `omat` (bulk); UMA only |
+| `dispersion` | `true` | add D3(BJ) (macemp) |
+| `dispersion_xc` | `pbe` | D3(BJ) parameters: `pbe`, or `r2scan` for r2SCAN models |
+| `device` | `auto` | `auto`, `cuda`, `cpu` |
+| `dtype_screen`, `dtype_final` | `float32`, `float64` | MACE precision for relaxations / final energies |
+| **surface** | | |
+| `input_type` | `auto` | `auto`, `bulk` or `slab` |
+| `relax_bulk` | `true` | relax the bulk cell before cutting |
+| `miller_indices` | `[[0, 0, 1]]` | surfaces to build |
+| `min_slab_thickness` | `8.0` | atom-to-atom slab thickness |
+| `max_terminations` | `3` | terminations kept per Miller index |
+| `min_lateral` | `auto` | minimum in-plane width; auto = molecule size + `lateral_buffer` |
+| `lateral_buffer` | `10.0` | see `min_lateral` |
+| `vacuum_above` | `auto` | vacuum above the slab; auto = molecule size + 15 |
+| `fix_fraction` | `0.5` | fraction of slab atoms fixed (whole bottom layers) |
+| **sampling** | | |
+| `site_types` | `[ontop, bridge, hollow]` | site types to use |
+| `spins_per_anchor` | `3` | rotations about the surface normal per anchor |
+| `n_random` | `60` | extra random orientations |
+| `contact_gap` | `auto` | initial distance to the surface; auto = 0.9 x vdW radii sum |
+| `clash_scale` | `0.7` | drop if any distance < `clash_scale` x vdW radii sum |
+| `seed` | `42` | random seed |
+| `surface_depth` | `0.9` | depth below the top atom counted as surface for sites |
+| **budget** | | per termination |
+| `wall_time_per_termination` | `600` | seconds; `0` = unlimited (all prescreened, top 30 % relaxed) |
+| `prescreen_steps`, `prescreen_optimizer`, `fmax_prescreen` | `20`, `fire`, `0.15` | prescreening |
+| `relax_optimizer`, `fmax`, `max_steps` | `lbfgs`, `0.05`, `400` | full relaxations (also bulk, slab, molecule) |
+| `prescreen_fraction`, `relax_fraction` | `0.40`, `0.55` | budget shares; the rest is reserve |
+| `min_full_relax` | `5` | warn if fewer full relaxations fit in the budget |
+| **analysis** | | |
+| `contact_scale` | `1.25` | contact if `d < contact_scale * (r_cov,i + r_cov,j)` |
+| `desorbed_distance` | `4.5` | desorbed if farther from the slab |
+| `dedup_energy_tol`, `dedup_rmsd_tol` | `0.02`, `0.30` | merging of equivalent configurations |
+| `temperature` | `298.15` | K, for Boltzmann weights |
+| `approach_scan`, `scan_heights` | `true`, `[1.5, 7.0, 0.25]` | rigid scan: start, stop, step |
+| `make_gif` | `true` | write GIF animations |
+| **uncertainty**, **dft_selection**, **vasp** | | used by the VASP and uncertainty steps (in development) |
+
+### Output directory
+
+```text
+CpMo_CO3H_on_TiSi_macemp/
+├── report.html              # open in a browser
+├── summary.csv              # all terminations, unique configurations
+├── adsorption.log           # progress, warnings
+├── config.resolved.yaml     # all settings actually used
+├── state.json               # checkpoint for resume
+├── results.db               # ASE database: all structures and energies
+├── inputs/                  # copies of the input files
+├── molecule/                # gas-phase optimization, molecule_analysis.json, gas_reference.json
+├── bulk/                    # bulk relaxation (bulk input only)
+├── figures/                 # PNG figures, GIF animations
+└── terminations/
+    ├── terminations.json    # all terminations and why they were kept
+    └── 001_t0/
+        ├── unit_slab.extxyz, slab_opt.*, slab_opt_final.extxyz, slab.json, sites.json
+        ├── candidates/      # initial configurations
+        ├── prescreen/       # prescreening trajectories
+        ├── relax/           # full relaxations and final structures
+        ├── prescreen.csv, results.csv, unique.csv
+        └── approach_scan.csv, approach_scan.extxyz
+```
+
+### Python API
+
+```python
+from ase_structure_optimizer.adsorption import (
+    analyze_molecule,
+    generate_report,
+    load_config,
+    resume_adsorption_workflow,
+    run_adsorption_workflow,
+)
 
 config = load_config("config.yaml")
-analysis = analyze_molecule(read_structure(config.molecule), config.molecule_props)
-print([fragment.name for fragment in analysis.fragments])
-print(analysis.reference_axis.method, [anchor.label for anchor in analysis.anchors])
-```
+result = run_adsorption_workflow(config)          # or resume_adsorption_workflow("run_dir")
 
-Run the MLIP part of the workflow (gas-phase reference, surfaces, initial
-configurations, time-budgeted prescreening and full relaxations):
-
-```bash
-ase-adsorb run config.yaml
-# or without a configuration file; options override the file's values
-ase-adsorb run --molecule mol.xyz --solid TiSi.cif --calculator macemp --miller 0 0 1
-ase-adsorb run config.yaml --mace-mp-model /path/to/mace-mp-0b3-medium.model --budget 600
-
-# continue after an interruption (finished items are skipped, the remaining
-# time budget accounts for the time already spent)
-ase-adsorb resume <run_dir>
-```
-
-From Python:
-
-```python
-from ase_structure_optimizer.adsorption import load_config, run_adsorption_workflow
-
-result = run_adsorption_workflow(load_config("config.yaml"))
+print(result.run_dir, result.summary_csv, result.report)
 for termination in result.terminations:
-    print(termination.term_id, termination.n_relaxed, termination.best_config_id, termination.best_eads_screen)
+    print(
+        termination.term_id,
+        termination.n_relaxed,
+        termination.best_unique_id,
+        termination.best_eads,
+        termination.best_class,
+    )
 ```
 
-How the sampling works:
+`run_adsorption_workflow()` returns `AdsorptionResult` (`run_dir`,
+`config_file`, `log_file`, `database`, `molecule_energy`, `terminations`,
+`summary_csv`, `figures_dir`, `report`, and the property `best`); each
+`TerminationResult` holds the counts, CSV paths, warnings and the most stable
+configuration. `prepare_surfaces(config)` runs only the setup and surface
+stages; `analyze_molecule(atoms, config.molecule_props)` is what
+`check-molecule` prints.
 
-- Surfaces: a bulk input is relaxed with a cell filter, cut with pymatgen
-  (terminations ranked by MLIP surface energy, at most `max_terminations`),
-  repeated laterally to `min_lateral`, and relaxed with its bottom layers
-  fixed; ontop / bridge / hollow sites are found per termination
-  (`bulk/`, `terminations/<miller>_t<i>/`). Miller indices refer to the axes
-  of the input CIF when it is a conventional cell; a primitive input cell
-  (e.g. `ase.build.bulk("Cu")`) is converted to the conventional cell first.
-- The molecule is relaxed in a periodic box (`molecule/gas_opt.*`) for E_mol.
-  If the MLIP changes its bonds there (e.g. an eta5-Cp ring slipping), the
-  input geometry is used for sampling and as the intact-molecule reference,
-  and a warning is logged.
-- Each (site x anchor x spin) and `n_random` random orientations give an
-  initial configuration. The molecule is lowered until its closest atom is at
-  the contact gap (`0.9 x` the sum of van der Waals radii by default: Bondi,
-  with Alvarez 2013 values for elements Bondi lacks). Clashing, self-image
-  and duplicate configurations are dropped (`candidates/`).
-- The step time is measured, then as many candidates as fit into
-  `prescreen_fraction` of `wall_time_per_termination` are prescreened
-  (stratified over site type x anchor; `prescreen.csv`).
-- The best configuration of each contact label (or, if not yet in contact,
-  of each fragment facing the surface) is fully relaxed first, then the rest
-  by energy, until `prescreen_fraction + relax_fraction` of the budget is
-  used (`relax/<config_id>.traj/.extxyz`, `results.csv`, `results.db`).
-- Failed configurations (exceptions, NaN, atoms closer than 0.5 Å, molecule
-  more than 10 Å from the surface) are recorded with a reason and skipped.
+### Troubleshooting
 
-Analysis of the fully relaxed configurations (per termination):
+| message or symptom | what to do |
+|---|---|
+| `CondaError: Run 'conda init' before 'conda activate'` | `source ~/miniconda3/etc/profile.d/conda.sh`, then `conda activate <env>`; or `conda init bash` once |
+| `ase-adsorb: command not found` | activate the environment, or `pip install -e ".[adsorption]"`, or use `python run_ase_adsorption.py` |
+| model download hangs or fails | download the model file once and set `calculator.mace_mp_model` to its path, `fallback_models: []` |
+| `... is a molecular model ... cannot describe surfaces` | use `macemp`, or `uma_s`/`uma_m` with `uma_task: oc20` or `omat` |
+| `... does not support element(s)` | the calculator (e.g. `emt`) lacks an element; use `macemp` or UMA |
+| `already contains a run` | rename the old run directory, set `run_dir`, or `ase-adsorb resume` it |
+| `resume` refuses: settings differ | the run's settings were edited; start a new run |
+| warning `gas-phase optimization changed the bond graph` | the MLIP breaks the molecule in the gas phase; try another model, check E_ads with DFT |
+| warning `prescreening budget used up` / `relaxation budget used up` / `only N full relaxation(s)` | increase `budget.wall_time_per_termination` |
+| many `dissociated` results with very negative E_ads | check the structures; this is often an MLIP artifact on reactive surfaces (compare models, validate with DFT) |
+| CUDA out of memory | `calculator.device: cpu`, or a smaller `min_lateral` / `lateral_buffer` |
+| `.traj` files look broken in an editor | they are binary; open the `.extxyz` copies or use `ase gui` |
 
-- Final energies: a single point with `calculator.dtype_final` for every
-  relaxed configuration; `E_ads = E(slab+mol) - E(slab) - E(mol)` uses only
-  final-dtype energies. `eads_screen` keeps the screening-dtype value.
-- Class, in this order: `dissociated` (the molecule's bonds changed; with a
-  metal center this is judged per ligand: bonds inside ligands unchanged and
-  every ligand still bonded to its metal, so a hapticity change such as
-  eta5 -> eta3 Cp is not a dissociation), `desorbed` (farther than
-  `desorbed_distance` from the slab), `chemisorbed` (at least one contact
-  atom), `physisorbed`. `surface_distorted` flags free slab atoms moved by
-  more than 1 Å.
-- Contact label: fragments touching the surface (`CO_1+H`, `C5H5`, `Mo` for
-  the metal atom), `none` without contact.
-- Angles: tilt θ between the reference axis u and the surface normal (0° = u
-  points away from the surface; axes without head/tail fold into 0-90°),
-  azimuth φ of the second principal axis against cell vector a; `height` is
-  the molecule center (metal, else center of mass) above the topmost slab atom.
-- `results.csv`: all relaxed configurations; `unique.csv`: de-duplicated
-  (same class and contact, |ΔE_ads| < `dedup_energy_tol`, RMSD up to lattice
-  translations < `dedup_rmsd_tol`) with Boltzmann weights at `temperature`;
-  `summary.csv`: unique configurations of all terminations.
-- Rigid approach scan (`approach_scan.csv/.extxyz`): the intact molecule in
-  the initial orientation of the most stable intact configuration, lowered
-  over `scan_heights` (clearance of its lowest atom above the surface).
-- Figures in `figures/`: `eads_ranking_<term>.png`, `eads_vs_tilt_<term>.png`,
-  `eads_site_anchor_heatmap_<term>.png`, `summary_<term>_<config>.png`
-  (top 3) and `termination_comparison.png`.
-
-Report and animations: after the MLIP stages `run` writes `report.html`, a
-single self-contained file (images embedded) with the settings, timings and
-budget use, the molecule analysis with a reference-axis sketch, the angle
-definitions, per-termination tables and figures, the warnings, the VASP
-selection (once generated) and an embedded player of the most stable
-configuration's relaxation. With `analysis.make_gif: true` it also writes
-`figures/approach_<term>.gif` and `figures/relaxation_<term>_<config>.gif`
-(the most stable and the most stable intact configuration), each with a
-static `.png` of snapshots plus the energy curve, since many editors cannot
-show GIFs. Redraw everything from the files of a run, without calculations:
-
-```bash
-ase-adsorb report <run_dir> [--no-animations]
-```
-
-The `vasp` and `dft-collect` subcommands are not implemented yet.
+The `vasp` and `dft-collect` subcommands (DFT input generation and comparison)
+and the multi-model uncertainty estimate are not implemented yet.
 
 ## Outputs
 
