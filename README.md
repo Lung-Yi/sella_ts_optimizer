@@ -437,6 +437,7 @@ config = CalculatorConfig(
     name="macemp",
     mace_mp_model="/data/models/mace-mpa-0-medium.model",
     dispersion=True,     # add D3(BJ), requires torch-dftd
+    dispersion_xc="pbe", # D3(BJ) damping parameters; "r2scan" for r2SCAN-trained models
     dtype="float64",     # MACE default_dtype; float32 is faster for screening
 )
 ```
@@ -753,7 +754,9 @@ CalculatorCapabilities(
 `CalculatorConfig` fields added for periodic systems, all with defaults that
 keep the existing backends unchanged: `device="auto"`, `dtype="float64"`
 (MACE `default_dtype`), `dispersion=False` (D3(BJ) for `macemp`),
-`mace_mp_model="medium-mpa-0"`, `uma_task="omol"`.
+`mace_mp_model="medium-mpa-0"`, `uma_task="omol"`, `dispersion_xc="pbe"` (the
+functional whose D3(BJ) parameters are used; use `"r2scan"` with r2SCAN-trained
+models such as `MACE-matpes-r2scan-omat-ft.model`).
 
 Use `run_frequency_analysis()` for an optimized XYZ file. Use
 `analyze_frequencies_atoms()` for an ASE `Atoms` object. Both return

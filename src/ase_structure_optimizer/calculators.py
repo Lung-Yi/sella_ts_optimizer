@@ -23,6 +23,7 @@ class CalculatorConfig:
     dispersion: bool = False
     mace_mp_model: str = "medium-mpa-0"
     uma_task: str = "omol"
+    dispersion_xc: str = "pbe"
 
 
 @dataclass(frozen=True)
@@ -152,7 +153,7 @@ def build_calculator(config: CalculatorConfig) -> Any:
             default_dtype=config.dtype,
             dispersion=config.dispersion,
             damping="bj",
-            dispersion_xc="pbe",
+            dispersion_xc=config.dispersion_xc,
         )
 
     choices = ", ".join(available_calculators())
@@ -198,9 +199,9 @@ def calculator_capabilities(config: CalculatorConfig) -> CalculatorCapabilities:
     name = config.name
 
     if name == "macemp":
-        level = "PBE (MPtrj/MPA)"
+        level = _macemp_level(config.mace_mp_model)
         if config.dispersion:
-            level += " + D3(BJ)"
+            level += f" + D3(BJ, {config.dispersion_xc})"
         return CalculatorCapabilities(
             periodic=True, uses_charge_spin=False, elements=None, level_of_theory=level
         )
@@ -251,6 +252,17 @@ def calculator_capabilities(config: CalculatorConfig) -> CalculatorCapabilities:
 
     choices = ", ".join(available_calculators())
     raise ValueError(f"Unknown calculator '{name}'. Choose one of: {choices}")
+
+
+def _macemp_level(model: str) -> str:
+    """Training level of theory of a MACE-MP family model, guessed from its name."""
+
+    lowered = str(model).lower()
+    if "r2scan" in lowered:
+        return "r2SCAN (MatPES)"
+    if "matpes" in lowered:
+        return "PBE (MatPES)"
+    return "PBE (MPtrj/MPA)"
 
 
 def _validate_uma_task(config: CalculatorConfig) -> None:

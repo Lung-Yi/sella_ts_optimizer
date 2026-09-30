@@ -266,6 +266,7 @@ class CalculatorSection:
     fallback_models: tuple[str, ...] = _setting(("medium", "small"), _list(_str))
     uma_task: str = _setting("oc20", _choice("omol", "omat", "oc20"))
     dispersion: bool = _setting(True, _bool)
+    dispersion_xc: str = _setting("pbe", _str)
     device: str = _setting("auto", _str)
     dtype_screen: str = _setting("float32", _choice("float32", "float64"))
     dtype_final: str = _setting("float64", _choice("float32", "float64"))
@@ -288,6 +289,7 @@ class CalculatorSection:
             device=self.device,
             dtype=self.dtype_screen if stage == "screen" else self.dtype_final,
             dispersion=self.dispersion,
+            dispersion_xc=self.dispersion_xc,
             mace_mp_model=mace_mp_model or self.mace_mp_model,
             uma_task=self.uma_task,
         )
@@ -662,6 +664,7 @@ calculator:                    # must be a periodic calculator
   fallback_models: [medium, small]   # tried in order if the macemp model fails to load
   uma_task: oc20               # uma_s / uma_m only: omat or oc20
   dispersion: true             # macemp D3(BJ), needs torch-dftd; ignored by UMA
+  dispersion_xc: pbe           # functional of the D3(BJ) damping parameters: pbe, or r2scan for r2SCAN-trained models
   device: auto                 # auto / cuda / cpu
   dtype_screen: float32        # macemp dtype for prescreening and relaxations
   dtype_final: float64         # macemp dtype for the final single points

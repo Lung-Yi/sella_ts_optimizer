@@ -230,6 +230,9 @@ def test_capability_details():
     assert calculator_capabilities(CalculatorConfig(name="macemp")).elements is None
     assert "D3" in calculator_capabilities(CalculatorConfig(name="macemp", dispersion=True)).level_of_theory
     assert "D3" not in calculator_capabilities(CalculatorConfig(name="macemp")).level_of_theory
+    r2scan = CalculatorConfig(name="macemp", mace_mp_model="/m/MACE-matpes-r2scan-omat-ft.model", dispersion=True,
+                              dispersion_xc="r2scan")
+    assert calculator_capabilities(r2scan).level_of_theory == "r2SCAN (MatPES) + D3(BJ, r2scan)"
     assert "OC20" in calculator_capabilities(CalculatorConfig(name="uma_s", uma_task="oc20")).level_of_theory
     assert calculator_capabilities(CalculatorConfig(name="uma_s")).uses_charge_spin is True
 
@@ -266,3 +269,8 @@ def test_build_calculator_never_caches(fake_backends):
     config = CalculatorConfig(name="macemp")
     assert build_calculator(config) is not build_calculator(config)
     assert calculators._CALCULATOR_CACHE == {}
+
+
+def test_dispersion_xc_is_passed(fake_backends):
+    build_calculator(CalculatorConfig(name="macemp", dispersion=True, dispersion_xc="r2scan", device="cpu"))
+    assert fake_backends.mace_mp.calls[0][1]["dispersion_xc"] == "r2scan"
