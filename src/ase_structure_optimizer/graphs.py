@@ -205,3 +205,34 @@ def _hill_formula(symbols: Sequence[str]) -> str:
         order = sorted(counts)
     return "".join(f"{symbol}{counts[symbol] if counts[symbol] > 1 else ''}" for symbol in order)
 
+
+
+def find_rings(
+    graph: nx.Graph,
+    nodes: Iterable[int] | None = None,
+    min_size: int = 3,
+    max_size: int = 8,
+) -> list[tuple[int, ...]]:
+    """Rings of a bond graph from its cycle basis, restricted to `nodes`.
+
+    Only rings with `min_size <= len(ring) <= max_size` are returned, each as
+    a tuple of atom indices in ring order starting from the lowest index;
+    rings are sorted by their lowest atom index. Pass `nodes` to exclude
+    atoms, e.g. metal centers whose bonds to an eta-bonded ligand would
+    otherwise form many three-membered M-C-C "rings".
+    """
+
+    nx = _require_networkx()
+
+    subgraph = graph if nodes is None else graph.subgraph(list(nodes))
+    rings = []
+    for cycle in nx.cycle_basis(subgraph):
+        if not min_size <= len(cycle) <= max_size:
+            continue
+        start = cycle.index(min(cycle))
+        ordered = cycle[start:] + cycle[:start]
+        if len(ordered) > 2 and ordered[-1] < ordered[1]:
+            ordered = [ordered[0]] + ordered[1:][::-1]
+        rings.append(tuple(int(index) for index in ordered))
+    rings.sort()
+    return rings

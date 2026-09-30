@@ -518,6 +518,39 @@ Bond-graph helpers in `ase_structure_optimizer.graphs` (need `networkx`):
 - `same_connectivity(g1, g2)` and `graph_hash(graph, symbols)`: compare bond
   graphs index-wise or independent of atom order.
 
+## Adsorption Workflow (in development)
+
+The `ase_structure_optimizer.adsorption` subpackage and the `ase-adsorb`
+command (also `python run_ase_adsorption.py`) automate molecule-on-surface
+adsorption sampling with periodic MLIPs. They need the `[adsorption]` extra.
+Currently available:
+
+```bash
+# Inspect the inferred bonds, ligand fragments, anchor points and reference
+# axis of the adsorbate before running anything.
+ase-adsorb check-molecule molecule.xyz [--config config.yaml] [--bond-scale 1.2] [--json analysis.json]
+
+# Print (or write) the annotated configuration template with all defaults.
+ase-adsorb init-config > config.yaml
+```
+
+Only `molecule` and `solid` are required in the configuration file. Molecular
+calculators (`maceomol`, `aimnet2`, `eSEN`, UMA `omol`, `xtb`, Q-Chem) are
+rejected when the file is loaded. From Python:
+
+```python
+from ase_structure_optimizer.adsorption import analyze_molecule, load_config
+from ase_structure_optimizer.structures import read_structure
+
+config = load_config("config.yaml")
+analysis = analyze_molecule(read_structure(config.molecule), config.molecule_props)
+print([fragment.name for fragment in analysis.fragments])
+print(analysis.reference_axis.method, [anchor.label for anchor in analysis.anchors])
+```
+
+The `run`, `resume`, `report`, `vasp` and `dft-collect` subcommands are not
+implemented yet.
+
 ## Outputs
 
 By default, local-minimum outputs are written next to the input XYZ in:

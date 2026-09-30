@@ -73,6 +73,17 @@ def test_core_import_and_cli_without_optional_packages(tmp_path: Path):
             assert "[adsorption]" in str(exc)
         else:
             raise AssertionError("expected RuntimeError without networkx")
+
+        # The adsorption subpackage imports without its optional packages and
+        # explains what to install when they are needed.
+        from ase_structure_optimizer.adsorption import config_from_dict, load_config
+        config_from_dict({"molecule": "m.xyz", "solid": "s.cif"})
+        try:
+            load_config("missing.yaml")
+        except RuntimeError as exc:
+            assert "[adsorption]" in str(exc)
+        else:
+            raise AssertionError("expected RuntimeError without PyYAML")
         print("OK")
         """,
         tmp_path,

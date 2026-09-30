@@ -23,6 +23,7 @@ all = ["geometric", "mace-torch", "mace-models", "pymatgen", "networkx", "pyyaml
 
 [project.scripts]
 ase-structure-opt = "ase_structure_optimizer.cli:main"
+ase-adsorb = "ase_structure_optimizer.adsorption.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
