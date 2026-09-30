@@ -293,3 +293,19 @@ def test_facing_label():
     floating.positions[6:] -= [0, 0, 1.5]  # water lower than CO, both out of contact
     assert contact_label(floating, 4, analysis, 1.25) == "none"
     assert facing_label(floating, 4, analysis, 1.25) == "~H2O"
+
+
+def test_moved_run_directory_can_be_resumed(tmp_path: Path):
+    import shutil
+
+    config = _config(tmp_path / "original", sampling={"n_random": 0})
+    first = run_adsorption_workflow(config)
+    moved = tmp_path / "elsewhere" / "run"
+    moved.parent.mkdir()
+    shutil.move(str(first.run_dir), moved)
+    shutil.rmtree(tmp_path / "original")  # the original inputs are gone too
+    state = RunState.load(moved)
+    state.set_item("111_t0/final", first.terminations[0].best_unique_id, "running")
+    resumed = resume_adsorption_workflow(moved)
+    assert resumed.run_dir == moved.resolve()
+    assert resumed.terminations[0].best_eads == pytest.approx(first.terminations[0].best_eads)

@@ -73,8 +73,10 @@ def test_bulk_input_produces_relaxed_terminations(tmp_path: Path):
     assert fcc111_sites == {"ontop_Cu", "bridge_Cu-Cu", "hollow_Cu-Cu-Cu_1", "hollow_Cu-Cu-Cu_2"}
 
     resolved = load_config(run_dir / "config.resolved.yaml")
-    assert resolved.molecule == (tmp_path / "CO.xyz").resolve()
+    assert resolved.molecule == (run_dir / "inputs" / "CO.xyz").resolve()  # copied into the run
+    assert (run_dir / "inputs" / "Cu.cif").read_bytes() == (tmp_path / "Cu.cif").read_bytes()
     assert resolved.run_dir == run_dir.resolve()
+    assert "molecule: inputs/CO.xyz" in (run_dir / "config.resolved.yaml").read_text()
 
     from ase.db import connect
 

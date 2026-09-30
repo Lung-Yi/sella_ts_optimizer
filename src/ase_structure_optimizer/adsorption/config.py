@@ -579,29 +579,40 @@ def config_to_dict(config: AdsorptionConfig) -> dict[str, Any]:
 def dump_config(config: AdsorptionConfig, path: str | Path) -> Path:
     """Write the full configuration, defaults included, as YAML.
 
-    File paths are written as absolute paths so the file can be reloaded
-    from any location.
+    File paths inside the directory of the written file are stored relative
+    to it (``load_config`` resolves them against that directory again), so a
+    run directory can be moved; other paths are written as absolute paths.
     """
 
     yaml = _require_yaml()
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    base = path.parent.resolve()
     data = config_to_dict(config)
     for key in ("molecule", "solid", "run_dir"):
         if data[key] is not None:
-            data[key] = str(Path(data[key]).resolve())
+            absolute = Path(data[key]).resolve()
+            try:
+                data[key] = str(absolute.relative_to(base))
+            except ValueError:
+                data[key] = str(absolute)
     with path.open("w", encoding="utf-8") as handle:
         yaml.safe_dump(data, handle, sort_keys=False, default_flow_style=None)
     return path
 
 
 def result_fingerprint(config: AdsorptionConfig) -> str:
-    """Hash of the settings in `RESULT_AFFECTING_SECTIONS` plus the input files' paths."""
+    """Hash of the settings in `RESULT_AFFECTING_SECTIONS` plus the input files' contents.
+
+    The molecule and solid files enter by content (their path if missing),
+    so moving a run directory does not change the fingerprint.
+    """
 
     data = config_to_dict(config)
     relevant = {key: data[key] for key in RESULT_AFFECTING_SECTIONS}
-    relevant["molecule"] = data["molecule"]
-    relevant["solid"] = data["solid"]
+    for key in ("molecule", "solid"):
+        file = Path(data[key])
+        relevant[key] = hashlib.sha256(file.read_bytes()).hexdigest() if file.is_file() else data[key]
     encoded = json.dumps(relevant, sort_keys=True, default=str).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 

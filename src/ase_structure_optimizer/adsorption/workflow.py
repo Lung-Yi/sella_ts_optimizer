@@ -15,6 +15,7 @@ import csv
 import dataclasses
 import json
 import logging
+import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -77,6 +78,7 @@ from .surface import (
 logger = logging.getLogger("ase_structure_optimizer.adsorption")
 
 RESOLVED_CONFIG = "config.resolved.yaml"
+INPUTS_DIR = "inputs"
 LOG_FILE = "adsorption.log"
 RESULTS_DB = "results.db"
 # Extra vacuum (Å) above the largest molecule dimension when vacuum_above is auto.
@@ -194,12 +196,17 @@ def start_run(config: AdsorptionConfig) -> RunContext:
         resolved = dataclasses.replace(
             config, calculator=dataclasses.replace(config.calculator, mace_mp_model=calculators.model)
         )
-    resolved = dataclasses.replace(
-        resolved,
-        run_dir=run_dir,
-        molecule=resolved.molecule.resolve(),
-        solid=resolved.solid.resolve(),
-    )
+    # Copies of the inputs make the run directory self-contained (movable, resumable).
+    inputs = run_dir / INPUTS_DIR
+    inputs.mkdir(exist_ok=True)
+    copies = {}
+    for key in ("molecule", "solid"):
+        source = getattr(resolved, key).resolve()
+        target = inputs / source.name
+        if source != target:
+            shutil.copy2(source, target)
+        copies[key] = target
+    resolved = dataclasses.replace(resolved, run_dir=run_dir, **copies)
     dump_config(resolved, run_dir / RESOLVED_CONFIG)
     state = RunState.create(run_dir, resolved)
     context = RunContext(resolved, run_dir, state, calculators)
@@ -216,7 +223,7 @@ def resume_run(run_dir: str | Path) -> RunContext:
     config_path = run_dir / RESOLVED_CONFIG
     if not config_path.is_file():
         raise StateError(f"no {RESOLVED_CONFIG} in {run_dir}")
-    config = load_config(config_path)
+    config = dataclasses.replace(load_config(config_path), run_dir=run_dir)
     state = RunState.load(run_dir)
     state.check_config(config)
     reset = state.prepare_resume()
@@ -941,7 +948,8 @@ def stage_sampling(context: RunContext, surface: SurfaceModel, gas: GasReference
         )
         logger.warning("%s: %s", term, message)
         warnings.append(message)
-    state.set_stage(budget_key, "done", message="; ".join(warnings))
+    state.stages.setdefault(budget_key, {})["warnings"] = list(warnings)
+    state.set_stage(budget_key, "done")
     return _termination_result(context, surface, candidates, warnings)
 
 
@@ -1064,7 +1072,9 @@ def _termination_result(
     relax = state.items.get(f"{term}/relax", {})
     done = {cid: record for cid, record in relax.items() if record.get("status") == "done"}
     best = min(done, key=lambda cid: done[cid]["eads_screen"]) if done else None
-    stored = state.stages.get(f"sampling/{term}", {}).get("message", "")
+    record = state.stages.get(f"sampling/{term}", {})
+    # Older runs stored the warnings joined in "message".
+    stored = record.get("warnings") or ([record["message"]] if record.get("message") else [])
     return TerminationResult(
         term_id=term,
         results_csv=directory / "results.csv",
@@ -1076,7 +1086,7 @@ def _termination_result(
         best_config_id=best,
         best_eads_screen=done[best]["eads_screen"] if best else None,
         budget_used=state.elapsed(f"sampling/{term}"),
-        warnings=tuple(warnings) if warnings else tuple(filter(None, stored.split("; "))),
+        warnings=tuple(warnings) if warnings else tuple(stored),
     )
 
 
