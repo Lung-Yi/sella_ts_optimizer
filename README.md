@@ -548,24 +548,62 @@ print([fragment.name for fragment in analysis.fragments])
 print(analysis.reference_axis.method, [anchor.label for anchor in analysis.anchors])
 ```
 
-The surface part of the workflow (bulk relaxation with a cell filter, slab
-terminations from pymatgen ranked by MLIP surface energy, lateral supercells,
-fixed bottom layers, slab relaxation and symmetry-inequivalent ontop / bridge /
-hollow sites) is available from Python:
+Run the MLIP part of the workflow (gas-phase reference, surfaces, initial
+configurations, time-budgeted prescreening and full relaxations):
 
-```python
-from ase_structure_optimizer.adsorption import load_config, prepare_surfaces
+```bash
+ase-adsorb run config.yaml
+# or without a configuration file; options override the file's values
+ase-adsorb run --molecule mol.xyz --solid TiSi.cif --calculator macemp --miller 0 0 1
+ase-adsorb run config.yaml --mace-mp-model /path/to/mace-mp-0b3-medium.model --budget 600
 
-for surface in prepare_surfaces(load_config("config.yaml")):
-    print(surface.term_id, surface.energy_final, [site.site_id for site in surface.sites])
+# continue after an interruption (finished items are skipped, the remaining
+# time budget accounts for the time already spent)
+ase-adsorb resume <run_dir>
 ```
 
-Miller indices refer to the axes of the input CIF when it is a conventional
-cell; a primitive input cell (e.g. `ase.build.bulk("Cu")`) is converted to the
-conventional cell first. Outputs go to `<molecule>_on_<solid>_<calculator>/`
-(`bulk/`, `terminations/<miller>_t<i>/`, `state.json`, `adsorption.log`,
-`results.db`). The `run`, `resume`, `report`, `vasp` and `dft-collect`
-subcommands are not implemented yet.
+From Python:
+
+```python
+from ase_structure_optimizer.adsorption import load_config, run_adsorption_workflow
+
+result = run_adsorption_workflow(load_config("config.yaml"))
+for termination in result.terminations:
+    print(termination.term_id, termination.n_relaxed, termination.best_config_id, termination.best_eads_screen)
+```
+
+How the sampling works:
+
+- Surfaces: a bulk input is relaxed with a cell filter, cut with pymatgen
+  (terminations ranked by MLIP surface energy, at most `max_terminations`),
+  repeated laterally to `min_lateral`, and relaxed with its bottom layers
+  fixed; ontop / bridge / hollow sites are found per termination
+  (`bulk/`, `terminations/<miller>_t<i>/`). Miller indices refer to the axes
+  of the input CIF when it is a conventional cell; a primitive input cell
+  (e.g. `ase.build.bulk("Cu")`) is converted to the conventional cell first.
+- The molecule is relaxed in a periodic box (`molecule/gas_opt.*`) for E_mol.
+  If the MLIP changes its bonds there (e.g. an eta5-Cp ring slipping), the
+  input geometry is used for sampling and as the intact-molecule reference,
+  and a warning is logged.
+- Each (site x anchor x spin) and `n_random` random orientations give an
+  initial configuration. The molecule is lowered until its closest atom is at
+  the contact gap (`0.9 x` the sum of van der Waals radii by default: Bondi,
+  with Alvarez 2013 values for elements Bondi lacks). Clashing, self-image
+  and duplicate configurations are dropped (`candidates/`).
+- The step time is measured, then as many candidates as fit into
+  `prescreen_fraction` of `wall_time_per_termination` are prescreened
+  (stratified over site type x anchor; `prescreen.csv`).
+- The best configuration of each contact label (or, if not yet in contact,
+  of each fragment facing the surface) is fully relaxed first, then the rest
+  by energy, until `prescreen_fraction + relax_fraction` of the budget is
+  used (`relax/<config_id>.traj/.extxyz`, `results.csv`, `results.db`).
+- Failed configurations (exceptions, NaN, atoms closer than 0.5 Å, molecule
+  more than 10 Å from the surface) are recorded with a reason and skipped.
+
+`results.csv` currently reports `eads_screen`, the adsorption energy with the
+screening dtype; final-dtype energies, classification and angles follow in
+the analysis step. The `report`, `vasp` and `dft-collect` subcommands are not
+implemented yet.
 
 ## Outputs
 

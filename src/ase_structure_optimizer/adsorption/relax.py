@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -142,6 +143,106 @@ def relax_structure(
         steps=result.steps,
         trajectory=traj_path,
         extxyz=extxyz_path,
+    )
+
+
+# Failure criteria for adsorption relaxations.
+MIN_INTERATOMIC_DISTANCE = 0.5
+MAX_DESORPTION_DISTANCE = 10.0
+
+
+@dataclass(frozen=True)
+class CandidateOutcome:
+    """Result of optimizing one adsorption configuration."""
+
+    status: str
+    reason: str
+    atoms: Atoms | None
+    energy: float | None
+    converged: bool
+    steps: int
+    elapsed: float
+    trajectory: Path | None
+
+
+def structure_problem(atoms: Atoms, n_slab: int) -> str:
+    """Why an optimized adsorption structure is unusable, or ``""``.
+
+    Checks for non-finite energy/forces, atoms closer than 0.5 Å, and a
+    molecule more than 10 Å away from the slab.
+    """
+
+    from ase.neighborlist import neighbor_list
+
+    from .analysis import min_molecule_slab_distance
+
+    try:
+        energy = float(atoms.get_potential_energy())
+        forces = atoms.get_forces()
+    except Exception as exc:  # noqa: BLE001 - missing results are a failure too
+        return f"no energy/forces: {exc}"
+    if not math.isfinite(energy) or not np.all(np.isfinite(forces)) or not np.all(np.isfinite(atoms.positions)):
+        return "non-finite energy, forces or positions"
+    if len(neighbor_list("i", atoms, MIN_INTERATOMIC_DISTANCE)):
+        return f"atoms closer than {MIN_INTERATOMIC_DISTANCE} Å"
+    distance = min_molecule_slab_distance(atoms, n_slab)
+    if distance > MAX_DESORPTION_DISTANCE:
+        return f"molecule left the surface ({distance:.1f} Å > {MAX_DESORPTION_DISTANCE} Å)"
+    return ""
+
+
+def optimize_candidate(
+    atoms: Atoms,
+    calculators: CalculatorSet,
+    output_dir: Path,
+    name: str,
+    optimizer: str,
+    fmax: float,
+    max_steps: int,
+    n_slab: int,
+    logfile: Path | None = None,
+    write_pair: bool = True,
+) -> CandidateOutcome:
+    """Optimize one adsorption configuration with the screen calculator.
+
+    Never raises for calculation problems: exceptions and unusable results
+    (see `structure_problem()`) give ``status="failed"`` with a reason.
+    Writes ``<name>.traj`` (and ``<name>.extxyz`` if `write_pair`).
+    """
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    started = time.perf_counter()
+    trajectory = output_dir / f"{name}.traj"
+    try:
+        result = optimize_geometry_atoms(
+            atoms,
+            calculators.screen,
+            output_dir,
+            fmax=fmax,
+            max_steps=max_steps,
+            optimizer=optimizer,
+            trajectory_name=trajectory.name,
+            calculator=get_calculator(calculators.screen),
+            logfile=str(logfile) if logfile is not None else None,
+            write_outputs=False,
+        )
+        images = read(trajectory, index=":")
+    except Exception as exc:  # noqa: BLE001 - one bad configuration must not stop the run
+        logger.warning("%s failed: %s: %s", name, type(exc).__name__, exc)
+        return CandidateOutcome(
+            "failed", f"{type(exc).__name__}: {exc}", None, None, False, 0, time.perf_counter() - started, None
+        )
+
+    final = images[-1]
+    final.set_constraint(atoms.constraints)
+    if write_pair:
+        write_trajectory_pair(images, output_dir / name)
+    problem = structure_problem(final, n_slab)
+    elapsed = time.perf_counter() - started
+    if problem:
+        return CandidateOutcome("failed", problem, final, None, result.converged, result.steps, elapsed, trajectory)
+    return CandidateOutcome(
+        "done", "", final, float(final.get_potential_energy()), result.converged, result.steps, elapsed, trajectory
     )
 
 

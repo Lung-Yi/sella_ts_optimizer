@@ -1,14 +1,17 @@
 """Workflow stages of the adsorption run.
 
-Implemented so far (milestones M1-M2): run directory setup, molecule
-analysis, bulk relaxation, slab generation and termination selection, slab
-supercells, slab relaxation and adsorption sites. `prepare_surfaces()` runs
-these stages and returns one `SurfaceModel` per kept termination.
+Implemented so far (milestones M1-M3): run directory setup, molecule
+analysis, the gas-phase reference, bulk relaxation, slab generation and
+termination selection, slab supercells, slab relaxation, adsorption sites,
+initial configurations, and the time-budgeted prescreening and full
+relaxations. `run_adsorption_workflow()` runs everything; `prepare_surfaces()`
+stops after the surfaces.
 """
 
 from __future__ import annotations
 
 import contextlib
+import csv
 import dataclasses
 import json
 import logging
@@ -17,13 +20,30 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
 
+import numpy as np
 from ase import Atoms
 from ase.io import read, write
 
 from ..structures import read_structure
+from .analysis import contact_label, facing_label
 from .config import AUTO, AdsorptionConfig, ConfigError, check_calculator_support, dump_config, load_config
-from .molecule import MoleculeAnalysis, analyze_molecule
-from .relax import CalculatorSet, relax_structure, resolve_calculators, single_point
+from .molecule import MoleculeAnalysis, analyze_molecule, molecule_in_box
+from .relax import (
+    CalculatorSet,
+    optimize_candidate,
+    relax_structure,
+    resolve_calculators,
+    single_point,
+)
+from .sampling import Candidate, generate_candidates
+from .scheduler import (
+    BudgetClock,
+    diverse_selection,
+    measure_step_time,
+    prescreen_count,
+    relax_count,
+    stratified_sample,
+)
 from .sites import AdsorptionSite, find_sites
 from .state import STATE_FILE, RunState, StateError
 from .surface import (
@@ -509,11 +529,535 @@ def _db_upsert(context: RunContext, atoms: Atoms, kind: str, name: str, **values
 
     from ase.db import connect
 
+    # ASE database key-value pairs cannot hold None.
+    values = {key: value for key, value in values.items() if value is not None}
     with connect(context.run_dir / RESULTS_DB) as database:
         stale = [row.id for row in database.select(kind=kind, name=name)]
         if stale:
             database.delete(stale)
         database.write(atoms, kind=kind, name=name, **values)
+
+
+# ---------------------------------------------------------------------------
+# Stage: gas-phase reference
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GasReference:
+    """Gas-phase reference: energies of the MLIP minimum and the sampling geometry.
+
+    `molecule` / `analysis` are the geometry used for sampling and the
+    intact-molecule bond graph: the optimized molecule, or the input one if
+    the optimization changed the connectivity (`geometry` says which).
+    """
+
+    molecule: Atoms
+    analysis: MoleculeAnalysis
+    energy_screen: float
+    energy_final: float
+    converged: bool
+    bonds_changed: bool
+    geometry: str = "optimized"
+
+
+def stage_gas_reference(context: RunContext, molecule: Atoms, input_analysis: MoleculeAnalysis) -> GasReference:
+    """Optimize the molecule in a periodic box and compute E_mol.
+
+    The molecule is relaxed with the screen calculator in the same kind of
+    rectangular box as the VASP reference, then a final-dtype single point
+    gives E_mol (the MLIP's gas-phase minimum, as the E_ads definition
+    requires).
+
+    The optimized geometry and its bond graph are used for sampling and as
+    the intact-molecule reference, unless the optimization changed the
+    connectivity (e.g. an MLIP slipping an eta5-Cp ring to eta2): then the
+    input geometry, whose bonds the user checked with ``check-molecule``, is
+    kept for both, and a warning is logged.
+    """
+
+    config = context.config
+    directory = context.run_dir / "molecule"
+    reference_file = directory / "gas_reference.json"
+    props = config.molecule_props
+
+    if context.state.stage_status("gas") == "done" and reference_file.is_file():
+        data = json.loads(reference_file.read_text(encoding="utf-8"))
+        if data.get("geometry", "optimized") == "optimized":
+            final = read(directory / "gas_opt_final.extxyz")
+            sampled = Atoms(final.get_chemical_symbols(), positions=final.get_positions())
+        else:
+            sampled = molecule
+        return GasReference(
+            molecule=sampled,
+            analysis=analyze_molecule(sampled, props),
+            energy_screen=data["energy_screen"],
+            energy_final=data["energy_final"],
+            converged=data["converged"],
+            bonds_changed=data["bonds_changed"],
+            geometry=data.get("geometry", "optimized"),
+        )
+
+    started = time.perf_counter()
+    boxed = molecule_in_box(molecule, config.vasp.molecule_box_padding)
+    result = relax_structure(
+        boxed,
+        context.calculators,
+        directory,
+        "gas_opt",
+        optimizer=config.budget.relax_optimizer,
+        fmax=config.budget.fmax,
+        max_steps=config.budget.max_steps,
+        logfile=directory / "gas_opt.log",
+    )
+    optimized = Atoms(result.atoms.get_chemical_symbols(), positions=result.atoms.get_positions())
+    analysis = analyze_molecule(optimized, props)
+    before = {(i, j) for i, j, _ in input_analysis.bonds}
+    after = {(i, j) for i, j, _ in analysis.bonds}
+    bonds_changed = before != after
+    geometry = "optimized"
+    if bonds_changed:
+        geometry = "input"
+        logger.warning(
+            "gas-phase optimization changed the bond graph (broken %s, formed %s); this is an MLIP "
+            "artifact to check with DFT. E_mol is still the MLIP gas-phase minimum, but the input "
+            "geometry is used for sampling and as the intact-molecule reference",
+            sorted(before - after) or "none",
+            sorted(after - before) or "none",
+        )
+        analysis = input_analysis
+        sampled = Atoms(molecule.get_chemical_symbols(), positions=molecule.get_positions())
+    else:
+        sampled = optimized
+    if not result.converged:
+        logger.warning("gas-phase optimization did not converge in %d steps", config.budget.max_steps)
+    (directory / "molecule_analysis.json").write_text(json.dumps(analysis.to_dict(), indent=1), encoding="utf-8")
+    reference = {
+        "energy_screen": result.energy_screen,
+        "energy_final": result.energy_final,
+        "converged": result.converged,
+        "steps": result.steps,
+        "bonds_changed": bonds_changed,
+        "geometry": geometry,
+        "box": boxed.cell.lengths().tolist(),
+    }
+    reference_file.write_text(json.dumps(reference, indent=1), encoding="utf-8")
+    _db_upsert(context, result.atoms, kind="molecule", name="gas", energy_final=result.energy_final)
+    context.state.add_elapsed("gas", time.perf_counter() - started)
+    context.state.set_stage("gas", "done")
+    logger.info(
+        "gas-phase molecule: E_mol %.4f eV (box %s Å, %s after %d steps)",
+        result.energy_final,
+        " x ".join(f"{x:.1f}" for x in boxed.cell.lengths()),
+        "converged" if result.converged else "not converged",
+        result.steps,
+    )
+    return GasReference(
+        sampled, analysis, result.energy_screen, result.energy_final, result.converged, bonds_changed, geometry
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stage: sampling (initial configurations, prescreening, full relaxations)
+# ---------------------------------------------------------------------------
+
+CANDIDATE_COLUMNS = ("config_id", "site_id", "site_kind", "anchor", "spin", "source", "initial_tilt")
+PRESCREEN_COLUMNS = CANDIDATE_COLUMNS + ("status", "energy", "steps", "elapsed", "contact", "facing", "reason")
+RESULT_COLUMNS = CANDIDATE_COLUMNS + (
+    "status",
+    "eads_screen",
+    "energy_screen",
+    "prescreen_energy",
+    "converged",
+    "steps",
+    "elapsed",
+    "contact",
+    "reason",
+)
+
+
+@dataclass(frozen=True)
+class TerminationResult:
+    """Sampling outcome of one termination."""
+
+    term_id: str
+    results_csv: Path
+    prescreen_csv: Path
+    n_candidates: int
+    n_prescreened: int
+    n_relaxed: int
+    n_failed: int
+    best_config_id: str | None
+    best_eads_screen: float | None
+    budget_used: float
+    warnings: tuple[str, ...] = ()
+
+
+def stage_sampling(context: RunContext, surface: SurfaceModel, gas: GasReference) -> TerminationResult:
+    """Initial configurations, prescreening and full relaxations of one termination."""
+
+    config = context.config
+    budget = config.budget
+    state = context.state
+    term = surface.term_id
+    directory = context.run_dir / "terminations" / term
+    slab = surface.slab()
+    n_slab = len(slab)
+    warnings: list[str] = []
+
+    candidates = _candidates(context, surface, slab, gas)
+    by_id = {candidate.config_id: candidate for candidate in candidates}
+
+    budget_key = f"sampling/{term}"
+    clock = BudgetClock(total=budget.wall_time_per_termination, spent_before=state.elapsed(budget_key))
+    checkpoint = {"time": time.perf_counter()}
+
+    def spend() -> None:
+        now = time.perf_counter()
+        state.add_elapsed(budget_key, now - checkpoint["time"])
+        checkpoint["time"] = now
+
+    if state.stage_status(budget_key) == "done":
+        logger.info("%s: sampling already finished, reusing results", term)
+        return _termination_result(context, surface, candidates, warnings)
+    state.set_stage(budget_key, "running")
+
+    calculator = _screen_calculator(context)
+    step_time = measure_step_time(candidates[0].atoms(slab, gas.molecule), calculator)
+    spend()
+    logger.info(
+        "%s: %d candidates; %.3f s per force call; budget %s (%.0f s used)",
+        term,
+        len(candidates),
+        step_time,
+        "unlimited" if clock.unlimited else f"{budget.wall_time_per_termination:.0f} s",
+        clock.elapsed(),
+    )
+
+    # -- prescreening -----------------------------------------------------
+    pre_stage = f"{term}/prescreen"
+    # Stored in selection order (stratum representatives first).
+    selected = list(state.items.get(pre_stage, {}))
+    if not selected:
+        n_pre = prescreen_count(len(candidates), budget, step_time)
+        rng = np.random.default_rng(config.sampling.seed)
+        chosen = stratified_sample(candidates, n_pre, key=lambda c: (c.site_kind, c.anchor), rng=rng)
+        selected = [candidate.config_id for candidate in chosen]
+        for cid in selected:
+            state.items.setdefault(pre_stage, {})[cid] = {"status": "pending"}
+        state.save()
+        logger.info(
+            "%s: prescreening %d of %d candidates (%d steps, fmax %.2f)",
+            term,
+            len(selected),
+            len(candidates),
+            budget.prescreen_steps,
+            budget.fmax_prescreen,
+        )
+
+    prescreen_dir = directory / "prescreen"
+    measured_steps = measured_time = 0.0
+    for cid in state.remaining(pre_stage, selected):
+        if clock.time_until(budget.prescreen_fraction) <= 0:
+            left = len(state.remaining(pre_stage, selected))
+            message = f"prescreening budget used up; {left} selected candidate(s) not prescreened"
+            logger.warning("%s: %s", term, message)
+            warnings.append(message)
+            break
+        state.set_item(pre_stage, cid, "running")
+        candidate = by_id[cid]
+        outcome = optimize_candidate(
+            candidate.atoms(slab, gas.molecule),
+            context.calculators,
+            prescreen_dir,
+            cid,
+            optimizer=budget.prescreen_optimizer,
+            fmax=budget.fmax_prescreen,
+            max_steps=budget.prescreen_steps,
+            n_slab=n_slab,
+            write_pair=False,
+        )
+        measured_steps += max(outcome.steps, 1)
+        measured_time += outcome.elapsed
+        label = facing = ""
+        if outcome.status == "done":
+            label = _contact(outcome.atoms, n_slab, gas.analysis, config)
+            facing = facing_label(outcome.atoms, n_slab, gas.analysis, config.analysis.contact_scale)
+        state.set_item(
+            pre_stage,
+            cid,
+            outcome.status,
+            energy=outcome.energy,
+            steps=outcome.steps,
+            elapsed=round(outcome.elapsed, 3),
+            contact=label,
+            facing=facing,
+            reason=outcome.reason,
+        )
+        spend()
+        _write_prescreen_csv(directory / "prescreen.csv", candidates, state.items.get(pre_stage, {}))
+    _write_prescreen_csv(directory / "prescreen.csv", candidates, state.items.get(pre_stage, {}))
+    if measured_steps:
+        step_time = measured_time / measured_steps  # includes optimizer overhead
+        logger.info("%s: measured %.3f s per optimization step during prescreening", term, step_time)
+
+    # -- full relaxations -------------------------------------------------
+    relax_stage = f"{term}/relax"
+    relax_end = budget.prescreen_fraction + budget.relax_fraction
+    queue = [cid for cid in by_id if cid in state.items.get(relax_stage, {})]
+    if not queue:
+        # Diversity: contact label, or the fragment facing the surface when
+        # prescreening ended before contact (see analysis.facing_label).
+        records = [
+            (cid, record["energy"], record.get("facing") or record.get("contact", ""))
+            for cid, record in state.items.get(pre_stage, {}).items()
+            if record.get("status") == "done"
+        ]
+        if not records:
+            raise RuntimeError(f"{term}: no candidate survived prescreening")
+        n_full = max(1, relax_count(len(records), budget, step_time, clock.time_until(relax_end)))
+        queue = diverse_selection(records, n_full)
+        for cid in queue:
+            state.items.setdefault(relax_stage, {})[cid] = {"status": "pending"}
+        state.save()
+        logger.info(
+            "%s: fully relaxing %d configuration(s) (%d distinct contact/facing labels among prescreened)",
+            term,
+            len(queue),
+            len({record[2] for record in records}),
+        )
+
+    relax_dir = directory / "relax"
+    finished = [cid for cid in queue if state.item_status(relax_stage, cid) in ("done", "failed")]
+    step_counts = [state.item_record(relax_stage, cid).get("steps", 0) for cid in finished]
+    relax_seconds = sum(state.item_record(relax_stage, cid).get("elapsed", 0.0) for cid in finished)
+    for cid in state.remaining(relax_stage, queue):
+        max_steps = budget.max_steps
+        if not clock.unlimited:
+            left = clock.time_until(relax_end)
+            if sum(step_counts) > 0:
+                # Relaxation steps near the surface cost more than prescreening steps.
+                step_time = relax_seconds / sum(step_counts)
+            average_steps = np.mean(step_counts) if step_counts else 0.5 * budget.max_steps
+            if finished and left < average_steps * step_time:
+                message = (
+                    f"relaxation budget used up after {len(finished)} full relaxation(s); "
+                    f"{len(state.remaining(relax_stage, queue))} planned configuration(s) skipped"
+                )
+                logger.warning("%s: %s", term, message)
+                warnings.append(message)
+                break
+            max_steps = max(budget.prescreen_steps, min(budget.max_steps, int(max(left, 0.0) / step_time)))
+        state.set_item(relax_stage, cid, "running")
+        start_atoms = _prescreened_structure(prescreen_dir / f"{cid}.traj", by_id[cid], slab, gas.molecule)
+        outcome = optimize_candidate(
+            start_atoms,
+            context.calculators,
+            relax_dir,
+            cid,
+            optimizer=budget.relax_optimizer,
+            fmax=budget.fmax,
+            max_steps=max_steps,
+            n_slab=n_slab,
+            logfile=relax_dir / f"{cid}.log",
+        )
+        label = _contact(outcome.atoms, n_slab, gas.analysis, config) if outcome.status == "done" else ""
+        eads = None
+        if outcome.status == "done":
+            eads = outcome.energy - surface.energy_screen - gas.energy_screen
+        state.set_item(
+            relax_stage,
+            cid,
+            outcome.status,
+            energy_screen=outcome.energy,
+            eads_screen=eads,
+            converged=outcome.converged,
+            steps=outcome.steps,
+            elapsed=round(outcome.elapsed, 3),
+            contact=label,
+            reason=outcome.reason,
+        )
+        spend()
+        finished.append(cid)
+        step_counts.append(outcome.steps)
+        relax_seconds += outcome.elapsed
+        if outcome.atoms is not None:
+            system = outcome.atoms
+            system.info.update(by_id[cid].metadata())
+            _db_upsert(
+                context,
+                system,
+                kind="adsorbate",
+                name=f"{term}/{cid}",
+                termination=term,
+                config_id=cid,
+                site_id=by_id[cid].site_id,
+                anchor=by_id[cid].anchor,
+                status=outcome.status,
+                energy_screen=outcome.energy,
+                eads_screen=eads,
+                converged=outcome.converged,
+                steps=outcome.steps,
+                elapsed=outcome.elapsed,
+                contact=label,
+            )
+        _write_results_csv(directory / "results.csv", candidates, state, term)
+        logger.info(
+            "%s: %s %s%s (%d steps, %.1f s)",
+            term,
+            cid,
+            outcome.status,
+            f", E_ads(screen) {eads:.3f} eV, contact {label}" if eads is not None else f": {outcome.reason}",
+            outcome.steps,
+            outcome.elapsed,
+        )
+
+    _write_results_csv(directory / "results.csv", candidates, state, term)
+    n_done = sum(1 for cid in queue if state.item_status(relax_stage, cid) == "done")
+    if n_done < budget.min_full_relax:
+        message = (
+            f"only {n_done} full relaxation(s) completed (min_full_relax={budget.min_full_relax}); "
+            "increase budget.wall_time_per_termination"
+        )
+        logger.warning("%s: %s", term, message)
+        warnings.append(message)
+    state.set_stage(budget_key, "done", message="; ".join(warnings))
+    return _termination_result(context, surface, candidates, warnings)
+
+
+def _candidates(context: RunContext, surface: SurfaceModel, slab: Atoms, gas: GasReference) -> list[Candidate]:
+    """Generate (or reload) the initial configurations of a termination."""
+
+    term = surface.term_id
+    directory = context.run_dir / "terminations" / term
+    index_file = directory / "candidates.json"
+    stage = f"candidates/{term}"
+    if context.state.stage_status(stage) == "done" and index_file.is_file():
+        metadata = json.loads(index_file.read_text(encoding="utf-8"))
+        candidates = []
+        for row in metadata:
+            atoms = read(directory / "candidates" / f"{row['config_id']}.extxyz")
+            candidates.append(
+                Candidate(
+                    config_id=row["config_id"],
+                    site_id=row["site_id"],
+                    site_kind=row["site_kind"],
+                    anchor=row["anchor"],
+                    spin=row["spin"],
+                    source=row["source"],
+                    tilt=row["initial_tilt"],
+                    molecule_positions=atoms.positions[len(slab) :].copy(),
+                )
+            )
+        return candidates
+
+    started = time.perf_counter()
+    candidates, report = generate_candidates(
+        slab, surface.sites, gas.molecule, gas.analysis, context.config.sampling
+    )
+    if not candidates:
+        raise RuntimeError(f"{term}: no initial configuration survived the clash checks")
+    (directory / "candidates").mkdir(parents=True, exist_ok=True)
+    for candidate in candidates:
+        write(directory / "candidates" / f"{candidate.config_id}.extxyz", candidate.atoms(slab, gas.molecule))
+    index_file.write_text(json.dumps([c.metadata() for c in candidates], indent=1), encoding="utf-8")
+    context.state.add_elapsed(stage, time.perf_counter() - started)
+    context.state.set_stage(stage, "done")
+    logger.info(
+        "%s: %d initial configurations (%d generated; dropped %d clashing, %d self-image, %d duplicates)",
+        term,
+        report.kept,
+        report.generated,
+        report.clash,
+        report.self_image,
+        report.duplicate,
+    )
+    return candidates
+
+
+def _screen_calculator(context: RunContext):
+    from ..calculators import get_calculator
+
+    return get_calculator(context.calculators.screen)
+
+
+def _contact(atoms: Atoms | None, n_slab: int, analysis: MoleculeAnalysis, config: AdsorptionConfig) -> str:
+    if atoms is None:
+        return ""
+    return contact_label(atoms, n_slab, analysis, config.analysis.contact_scale)
+
+
+def _prescreened_structure(trajectory: Path, candidate: Candidate, slab: Atoms, molecule: Atoms) -> Atoms:
+    """Last prescreening frame (with the slab constraints), or the initial structure."""
+
+    initial = candidate.atoms(slab, molecule)
+    if not trajectory.is_file():
+        return initial
+    try:
+        last = read(trajectory, index=-1)
+    except Exception:  # noqa: BLE001 - an unreadable (interrupted) trajectory: start over
+        return initial
+    initial.positions = last.positions
+    return initial
+
+
+def _write_csv(path: Path, columns: tuple[str, ...], rows: list[dict[str, Any]]) -> None:
+    temporary = path.with_name(path.name + ".tmp")
+    with temporary.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({key: ("" if row.get(key) is None else row.get(key)) for key in columns})
+    temporary.replace(path)
+
+
+def _write_prescreen_csv(path: Path, candidates: list[Candidate], records: dict[str, dict]) -> None:
+    rows = []
+    for candidate in candidates:
+        if candidate.config_id in records:
+            rows.append({**candidate.metadata(), **records[candidate.config_id]})
+    _write_csv(path, PRESCREEN_COLUMNS, rows)
+
+
+def _write_results_csv(path: Path, candidates: list[Candidate], state: RunState, term: str) -> None:
+    relax = state.items.get(f"{term}/relax", {})
+    prescreen = state.items.get(f"{term}/prescreen", {})
+    rows = []
+    for candidate in candidates:
+        record = relax.get(candidate.config_id)
+        if record is None or record.get("status") not in ("done", "failed"):
+            continue
+        row = {**candidate.metadata(), **record}
+        row["prescreen_energy"] = prescreen.get(candidate.config_id, {}).get("energy")
+        rows.append(row)
+    rows.sort(key=lambda row: (row["status"] != "done", row.get("eads_screen") or 0.0))
+    _write_csv(path, RESULT_COLUMNS, rows)
+
+
+def _termination_result(
+    context: RunContext, surface: SurfaceModel, candidates: list[Candidate], warnings: list[str]
+) -> TerminationResult:
+    term = surface.term_id
+    state = context.state
+    directory = context.run_dir / "terminations" / term
+    prescreen = state.items.get(f"{term}/prescreen", {})
+    relax = state.items.get(f"{term}/relax", {})
+    done = {cid: record for cid, record in relax.items() if record.get("status") == "done"}
+    best = min(done, key=lambda cid: done[cid]["eads_screen"]) if done else None
+    stored = state.stages.get(f"sampling/{term}", {}).get("message", "")
+    return TerminationResult(
+        term_id=term,
+        results_csv=directory / "results.csv",
+        prescreen_csv=directory / "prescreen.csv",
+        n_candidates=len(candidates),
+        n_prescreened=sum(1 for record in prescreen.values() if record.get("status") in ("done", "failed")),
+        n_relaxed=len(done),
+        n_failed=sum(1 for record in relax.values() if record.get("status") == "failed"),
+        best_config_id=best,
+        best_eads_screen=done[best]["eads_screen"] if best else None,
+        budget_used=state.elapsed(f"sampling/{term}"),
+        warnings=tuple(warnings) if warnings else tuple(filter(None, stored.split("; "))),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -536,3 +1080,77 @@ def prepare_surfaces(config: AdsorptionConfig, resume: bool = False) -> list[Sur
         models = stage_surfaces(context, molecule)
         logger.info("surface preparation finished in %.1f s", time.perf_counter() - started)
         return models
+
+
+# ---------------------------------------------------------------------------
+# Complete workflow
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AdsorptionResult:
+    """Paths and key numbers of an adsorption run (like `OptimizationResult`)."""
+
+    run_dir: Path
+    config_file: Path
+    log_file: Path
+    database: Path
+    molecule_energy: float
+    terminations: tuple[TerminationResult, ...]
+
+    @property
+    def best(self) -> TerminationResult | None:
+        """Termination holding the lowest screening E_ads."""
+
+        ranked = [t for t in self.terminations if t.best_eads_screen is not None]
+        return min(ranked, key=lambda t: t.best_eads_screen) if ranked else None
+
+
+def run_adsorption_workflow(config: AdsorptionConfig) -> AdsorptionResult:
+    """Run the adsorption workflow for `config` in a new run directory."""
+
+    return _run(config.resolved_run_dir().resolve(), config)
+
+
+def resume_adsorption_workflow(run_dir: str | Path) -> AdsorptionResult:
+    """Continue an interrupted run from its ``config.resolved.yaml`` and ``state.json``.
+
+    Finished items are skipped, interrupted ones restarted, and the remaining
+    sampling budget accounts for the time already spent.
+    """
+
+    return _run(Path(run_dir).resolve(), None)
+
+
+def _run(run_dir: Path, config: AdsorptionConfig | None) -> AdsorptionResult:
+    with run_logging(run_dir):
+        started = time.perf_counter()
+        context = start_run(config) if config is not None else resume_run(run_dir)
+        molecule, analysis = stage_molecule(context)
+        gas = stage_gas_reference(context, molecule, analysis)
+        surfaces = stage_surfaces(context, molecule)
+        results = []
+        for surface in surfaces:
+            results.append(stage_sampling(context, surface, gas))
+        context.state.set_stage("sampling", "done")
+        for result in results:
+            logger.info(
+                "%s: %d candidates, %d prescreened, %d relaxed (%d failed); best %s E_ads(screen) %s; budget used %.0f s",
+                result.term_id,
+                result.n_candidates,
+                result.n_prescreened,
+                result.n_relaxed,
+                result.n_failed,
+                result.best_config_id,
+                f"{result.best_eads_screen:.3f} eV" if result.best_eads_screen is not None else "n/a",
+                result.budget_used,
+            )
+        logger.info("workflow finished in %.1f s (this session)", time.perf_counter() - started)
+        return AdsorptionResult(
+            run_dir=context.run_dir,
+            config_file=context.run_dir / RESOLVED_CONFIG,
+            log_file=context.run_dir / LOG_FILE,
+            database=context.run_dir / RESULTS_DB,
+            molecule_energy=gas.energy_final,
+            terminations=tuple(results),
+        )

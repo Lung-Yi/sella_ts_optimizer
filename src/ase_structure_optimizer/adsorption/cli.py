@@ -10,8 +10,6 @@ from pathlib import Path
 
 # Subcommands implemented in later milestones.
 _PLANNED = {
-    "run": ("Run the full MLIP workflow.", "M3"),
-    "resume": ("Continue an interrupted run.", "M3"),
     "report": ("Regenerate figures and report.html.", "M5"),
     "vasp": ("Select configurations and write VASP inputs.", "M6"),
     "dft-collect": ("Read VASP results and compare with the MLIP.", "M7"),
@@ -44,6 +42,36 @@ def build_parser() -> argparse.ArgumentParser:
     init = subparsers.add_parser("init-config", help="Print an annotated configuration template.")
     init.add_argument("-o", "--output", type=Path, default=None, help="Write to this file instead of stdout.")
 
+    run = subparsers.add_parser(
+        "run",
+        help="Run the MLIP workflow (options override the configuration file).",
+        description=(
+            "Run the adsorption workflow. Either give a configuration file, or at least "
+            "--molecule and --solid; options override the file's values."
+        ),
+    )
+    run.add_argument("config", type=Path, nargs="?", default=None, help="Configuration file (YAML).")
+    run.add_argument("--molecule", type=Path, default=None, help="Gas-phase molecule (xyz).")
+    run.add_argument("--solid", type=Path, default=None, help="Bulk crystal or slab (cif).")
+    run.add_argument("--calculator", default=None, help="calculator.name, e.g. macemp.")
+    run.add_argument("--mace-mp-model", default=None, help="calculator.mace_mp_model (name or file path).")
+    run.add_argument("--uma-task", default=None, help="calculator.uma_task (omat or oc20).")
+    run.add_argument("--device", default=None, help="calculator.device (auto, cuda, cpu).")
+    run.add_argument(
+        "--miller",
+        type=int,
+        nargs=3,
+        action="append",
+        metavar=("H", "K", "L"),
+        default=None,
+        help="Miller index; repeat for several (replaces surface.miller_indices).",
+    )
+    run.add_argument("--budget", type=float, default=None, help="budget.wall_time_per_termination in s (0 = unlimited).")
+    run.add_argument("--run-dir", type=Path, default=None, help="Output directory.")
+
+    resume = subparsers.add_parser("resume", help="Continue an interrupted run.")
+    resume.add_argument("run_dir", type=Path, help="Run directory containing state.json.")
+
     for name, (description, milestone) in _PLANNED.items():
         planned = subparsers.add_parser(name, help=f"{description} (not implemented yet, {milestone})")
         planned.add_argument("args", nargs="*", help=argparse.SUPPRESS)
@@ -70,10 +98,82 @@ def main(argv: list[str] | None = None) -> int:
             args.output.write_text(text, encoding="utf-8")
             print(f"Configuration template written to {args.output}")
         return 0
+    if args.command in ("run", "resume"):
+        return _run(parser, args)
 
     description, milestone = _PLANNED[args.command]
     print(f"ase-adsorb {args.command}: not implemented yet (planned for milestone {milestone}).", file=sys.stderr)
     return 2
+
+
+def run_config_from_args(args: argparse.Namespace):
+    """Build the `AdsorptionConfig` of ``ase-adsorb run`` from a file and options."""
+
+    from .config import _require_yaml, config_from_dict
+
+    data: dict = {}
+    base_dir = Path.cwd()
+    if args.config is not None:
+        yaml = _require_yaml()
+        data = yaml.safe_load(args.config.read_text(encoding="utf-8")) or {}
+        base_dir = args.config.resolve().parent
+    # Paths given on the command line are relative to the current directory.
+    for key in ("molecule", "solid", "run_dir"):
+        value = getattr(args, key)
+        if value is not None:
+            data[key] = str(value.expanduser().resolve())
+    calculator = dict(data.get("calculator") or {})
+    for option, key in (
+        ("calculator", "name"),
+        ("mace_mp_model", "mace_mp_model"),
+        ("uma_task", "uma_task"),
+        ("device", "device"),
+    ):
+        if getattr(args, option) is not None:
+            calculator[key] = getattr(args, option)
+    if calculator:
+        data["calculator"] = calculator
+    if args.miller is not None:
+        data["surface"] = {**(data.get("surface") or {}), "miller_indices": [list(m) for m in args.miller]}
+    if args.budget is not None:
+        data["budget"] = {**(data.get("budget") or {}), "wall_time_per_termination": args.budget}
+    return config_from_dict(data, base_dir=base_dir)
+
+
+def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    from .config import ConfigError
+    from .state import StateError
+    from .workflow import resume_adsorption_workflow, run_adsorption_workflow
+
+    try:
+        if args.command == "run":
+            if args.config is None and (args.molecule is None or args.solid is None):
+                parser.error("give a configuration file or both --molecule and --solid")
+            config = run_config_from_args(args)
+            for label, path in (("molecule", config.molecule), ("solid", config.solid)):
+                if not path.is_file():
+                    parser.error(f"{label} file does not exist: {path}")
+            result = run_adsorption_workflow(config)
+        else:
+            result = resume_adsorption_workflow(args.run_dir)
+    except (ConfigError, StateError) as exc:
+        print(f"ase-adsorb {args.command}: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"\nRun directory: {result.run_dir}")
+    for termination in result.terminations:
+        best = (
+            f"best {termination.best_config_id}, E_ads(screen) {termination.best_eads_screen:.3f} eV"
+            if termination.best_eads_screen is not None
+            else "no successful relaxation"
+        )
+        print(
+            f"  {termination.term_id}: {termination.n_relaxed} relaxed, {termination.n_failed} failed; {best}; "
+            f"{termination.results_csv}"
+        )
+        for warning in termination.warnings:
+            print(f"    warning: {warning}")
+    return 0
 
 
 def _check_molecule(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:

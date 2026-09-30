@@ -17,16 +17,25 @@ from .config import (
 )
 from .molecule import Anchor, MoleculeAnalysis, ReferenceAxis, analyze_molecule, generate_conformers
 from .sites import AdsorptionSite, find_sites
-from .workflow import SurfaceModel, prepare_surfaces
+from .workflow import (
+    AdsorptionResult,
+    SurfaceModel,
+    TerminationResult,
+    prepare_surfaces,
+    resume_adsorption_workflow,
+    run_adsorption_workflow,
+)
 
 __all__ = [
     "AdsorptionConfig",
+    "AdsorptionResult",
     "AdsorptionSite",
     "Anchor",
     "ConfigError",
     "MoleculeAnalysis",
     "ReferenceAxis",
     "SurfaceModel",
+    "TerminationResult",
     "analyze_molecule",
     "check_calculator_support",
     "config_from_dict",
@@ -37,4 +46,6 @@ __all__ = [
     "generate_conformers",
     "load_config",
     "prepare_surfaces",
+    "resume_adsorption_workflow",
+    "run_adsorption_workflow",
 ]

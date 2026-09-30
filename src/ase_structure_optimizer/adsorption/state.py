@@ -156,7 +156,9 @@ class RunState:
 
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_name(self.path.name + ".tmp")
-        temporary.write_text(json.dumps(self.to_dict(), indent=1, sort_keys=True), encoding="utf-8")
+        # Insertion order is kept: the order of items is meaningful (e.g. the
+        # prescreening queue).
+        temporary.write_text(json.dumps(self.to_dict(), indent=1), encoding="utf-8")
         os.replace(temporary, self.path)
 
 

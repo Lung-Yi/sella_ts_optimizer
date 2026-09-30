@@ -71,3 +71,10 @@ def test_invalid_inputs(tmp_path: Path):
     (tmp_path / STATE_FILE).write_text(json.dumps(data))
     with pytest.raises(StateError, match="version"):
         RunState.load(tmp_path)
+
+
+def test_item_order_survives_reload(tmp_path: Path):
+    state = RunState.create(tmp_path, _config())
+    for item in ("c0009", "c0002", "c0005"):
+        state.set_item("queue", item, "pending")
+    assert list(RunState.load(tmp_path).items["queue"]) == ["c0009", "c0002", "c0005"]

@@ -221,6 +221,22 @@ def analyze_molecule(
     )
 
 
+def molecule_in_box(molecule: Atoms, padding: float) -> Atoms:
+    """The molecule centered in a periodic rectangular box.
+
+    Box edges are the molecule's extent along x, y, z plus `padding`, plus
+    0, 0.5 and 1.0 Å respectively so the three edges differ (no artificial
+    cubic symmetry), matching the VASP gas-phase reference.
+    """
+
+    positions = molecule.get_positions()
+    extent = positions.max(axis=0) - positions.min(axis=0)
+    lengths = extent + padding + np.array([0.0, 0.5, 1.0])
+    boxed = Atoms(molecule.get_chemical_symbols(), positions=positions, cell=np.diag(lengths), pbc=True)
+    boxed.center()
+    return boxed
+
+
 def generate_conformers(atoms: Atoms, max_conformers: int = 1) -> list[Atoms]:
     """Conformers of the adsorbate to sample.
 
