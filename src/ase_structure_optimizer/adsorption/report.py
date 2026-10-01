@@ -19,7 +19,7 @@ from typing import Any, Iterable, Sequence
 
 from ase.io import read
 
-from ..calculators import calculator_capabilities
+from ..calculators import calculator_capabilities, model_label
 
 logger = logging.getLogger("ase_structure_optimizer.adsorption")
 
@@ -247,11 +247,11 @@ def _render(run_dir, config, surfaces, results, molecule_data, gas, animations, 
         ["molecule", f"{config.molecule.name} ({_formula(molecule_data['symbols'])}), charge "
          f"{config.molecule_props.charge}, multiplicity {config.molecule_props.multiplicity}"],
         ["solid", config.solid.name],
-        ["calculator", f"{calc.name}, model {calc.mace_mp_model if calc.name == 'macemp' else calc.name}"
+        ["calculator", f"{calc.name}, model {model_label(config.calculator_config())}"
          + (f", task {calc.uma_task}" if calc.name in ('uma_s', 'uma_m') else "")],
-        ["level of theory", capabilities.level_of_theory],
-        ["dispersion (macemp)", "D3(BJ)" if calc.dispersion else "none"],
-        ["dtype screening / final", f"{calc.dtype_screen} / {calc.dtype_final}"],
+        ["level of theory (incl. dispersion)", capabilities.level_of_theory],
+        ["dtype screening / final", f"{calc.dtype_screen} / {calc.dtype_final}" if calc.name == "macemp"
+         else "model default"],
         ["Miller indices", ", ".join("(" + " ".join(str(i) for i in m) + ")" for m in config.surface.miller_indices)],
         ["slab", f"min thickness {config.surface.min_slab_thickness} Å, fix fraction {config.surface.fix_fraction}, "
          f"vacuum {config.surface.vacuum_above}, min lateral {config.surface.min_lateral}"],

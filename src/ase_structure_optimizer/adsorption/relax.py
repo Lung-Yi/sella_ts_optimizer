@@ -18,7 +18,7 @@ from ase import Atoms
 from ase.calculators.singlepoint import SinglePointCalculator
 from ase.io import read, write
 
-from ..calculators import CalculatorConfig, get_calculator
+from ..calculators import CalculatorConfig, get_calculator, model_label
 from ..runner import optimize_geometry_atoms
 from ..structures import write_trajectory_pair
 from .config import AdsorptionConfig
@@ -35,9 +35,9 @@ class CalculatorSet:
 
     @property
     def model(self) -> str:
-        """Model actually used (``mace_mp_model`` for macemp, else the name)."""
+        """Model actually used (model name or file path, else the calculator name)."""
 
-        return self.final.mace_mp_model if self.final.name == "macemp" else self.final.name
+        return model_label(self.final)
 
 
 @dataclass(frozen=True)

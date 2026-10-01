@@ -274,3 +274,62 @@ def test_build_calculator_never_caches(fake_backends):
 def test_dispersion_xc_is_passed(fake_backends):
     build_calculator(CalculatorConfig(name="macemp", dispersion=True, dispersion_xc="r2scan", device="cpu"))
     assert fake_backends.mace_mp.calls[0][1]["dispersion_xc"] == "r2scan"
+
+
+def test_uma_model_name_and_checkpoint_file(fake_backends, monkeypatch):
+    load_predict_unit = _Recorder("load_predict_unit")
+    monkeypatch.setattr(
+        sys.modules["fairchem.core"].pretrained_mlip, "load_predict_unit", load_predict_unit, raising=False
+    )
+    build_calculator(CalculatorConfig(name="uma_s", uma_task="oc20", uma_model="uma-s-1p2", device="cpu"))
+    build_calculator(CalculatorConfig(name="uma_s", uma_task="oc20", uma_model="~/m/uma-s-1p2p1.pt", device="cpu"))
+
+    assert [call[0][0] for call in fake_backends.get_predict_unit.calls] == ["uma-s-1p2"]
+    path = load_predict_unit.calls[0][0][0]
+    assert path.endswith("m/uma-s-1p2p1.pt") and not path.startswith("~")
+    assert [call[1] for call in fake_backends.fairchem_calculator.calls] == [{"task_name": "oc20"}] * 2
+
+
+def test_uma_dispersion_adds_d3_except_for_d3_trained_tasks(fake_backends, monkeypatch):
+    torch = sys.modules["torch"]
+    torch.float32, torch.float64 = "f32", "f64"
+    d3 = _Recorder("d3")
+    module = types.ModuleType("torch_dftd.torch_dftd3_calculator")
+    module.TorchDFTD3Calculator = d3
+    monkeypatch.setitem(sys.modules, "torch_dftd", types.ModuleType("torch_dftd"))
+    monkeypatch.setitem(sys.modules, "torch_dftd.torch_dftd3_calculator", module)
+    sums = _Recorder("sum")
+    monkeypatch.setattr("ase.calculators.mixing.SumCalculator", sums)
+
+    config = CalculatorConfig(name="uma_s", uma_task="oc20", dispersion=True, dispersion_xc="rpbe", device="cpu")
+    result = build_calculator(config)
+    assert result.source == "sum" and len(sums.calls[0][0][0]) == 2
+    assert d3.calls[0][1]["xc"] == "rpbe" and d3.calls[0][1]["damping"] == "bj"
+    assert "D3(BJ, rpbe)" in calculator_capabilities(config).level_of_theory
+
+    d3_trained = dataclasses.replace(config, uma_task="oc25")
+    assert build_calculator(d3_trained).source == "FAIRChemCalculator"
+    assert len(d3.calls) == 1
+    assert calculator_capabilities(d3_trained).level_of_theory == "RPBE+D3 (OC25)"
+
+    # Without dispersion the plain UMA calculator is returned, as before.
+    assert build_calculator(dataclasses.replace(config, dispersion=False)).source == "FAIRChemCalculator"
+
+
+@pytest.mark.parametrize("task", ["oc22", "oc25", "odac", "omc"])
+def test_new_uma_tasks_are_periodic(task):
+    capabilities = calculator_capabilities(CalculatorConfig(name="uma_s", uma_task=task))
+    assert capabilities.periodic and not capabilities.uses_charge_spin
+
+
+def test_model_label():
+    assert calculators.model_label(CalculatorConfig(name="macemp", mace_mp_model="/m/a.model")) == "/m/a.model"
+    assert calculators.model_label(CalculatorConfig(name="uma_s")) == "uma-s-1p1"
+    assert calculators.model_label(CalculatorConfig(name="uma_m", uma_model="/m/u.pt")) == "/m/u.pt"
+    assert calculators.model_label(CalculatorConfig(name="emt")) == "emt"
+
+
+def test_stress_head_only_for_omat_and_omc():
+    assert calculator_capabilities(CalculatorConfig(name="uma_s", uma_task="omat")).stress
+    assert not calculator_capabilities(CalculatorConfig(name="uma_s", uma_task="oc20")).stress
+    assert calculator_capabilities(CalculatorConfig(name="macemp")).stress

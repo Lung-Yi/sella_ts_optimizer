@@ -142,6 +142,18 @@ def test_calculator_configs_for_screen_and_final():
         config.calculator_config("prescreen")
 
 
+def test_uma_model_and_shared_dtype():
+    config = _config(calculator={"name": "uma_s", "uma_task": "oc25", "uma_model": "/m/uma-s-1p2p1.pt"})
+    screen = config.calculator_config("screen")
+    final = config.calculator_config("final")
+    assert final.uma_model == "/m/uma-s-1p2p1.pt" and final.uma_task == "oc25"
+    # Both stages map to one CalculatorConfig, so the model is loaded only once.
+    assert screen == final
+    assert _config(calculator={"name": "uma_s"}).calculator_config().uma_model == ""
+    with pytest.raises(ConfigError, match="uma_task"):
+        _config(calculator={"name": "uma_s", "uma_task": "bogus"})
+
+
 def test_load_resolves_paths_relative_to_file(tmp_path: Path):
     path = tmp_path / "sub" / "config.yaml"
     path.parent.mkdir()

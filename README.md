@@ -327,9 +327,11 @@ The CLI accepts these calculator names:
 
 The FAIRChem UMA models (`uma_s`, `uma_m`) use the `omol` task by default,
 which is the molecular task used in all existing workflows. From Python, set
-`CalculatorConfig(uma_task=...)` to `omat` (bulk materials) or `oc20`
-(adsorbate + surface systems) for periodic systems. `eSEN` only supports
-`omol`. Energies from different tasks or models must never be mixed.
+`CalculatorConfig(uma_task=...)` to a periodic task: `omat` (bulk
+materials), `oc20` (adsorbate + surface), `oc22` (oxide surfaces), `oc25`
+(solid-liquid interfaces), `odac` (MOFs) or `omc` (molecular crystals); the
+tasks available depend on the checkpoint. `eSEN` only supports `omol`.
+Energies from different tasks or models must never be mixed.
 
 ML backends run on CUDA when available and otherwise on CPU. From Python,
 `CalculatorConfig(device="cpu")` or `device="cuda"` overrides this.
@@ -445,6 +447,22 @@ config = CalculatorConfig(
 
 FAIRChem UMA models are downloaded from Hugging Face on first use and need an
 account with access to the UMA model repository (`huggingface-cli login`).
+`CalculatorConfig.uma_model` selects another registered model (e.g.
+`"uma-s-1p2"`) or a local checkpoint file, which needs no login; it is used
+by `uma_s`, `uma_m` and `eSEN` (empty = the default `uma-s-1p1`,
+`uma-m-1p1`, `esen-sm-conserving-all-omol`). `dispersion=True` adds D3(BJ)
+to UMA as well, except for the tasks whose training data already include D3
+(`oc25`, `odac`, `omc`):
+
+```python
+config = CalculatorConfig(
+    name="uma_s",
+    uma_model="~/.cache/uma/uma-s-1p2p1.pt",  # local checkpoint
+    uma_task="oc20",
+    dispersion=True,
+    dispersion_xc="rpbe",                      # OC20 is RPBE
+)
+```
 
 ## Periodic Systems
 
@@ -593,9 +611,26 @@ tested with this workflow:
 | `~/.cache/mace/mace-mp-0b3-medium.model` | `pbe` | PBE-level (MPtrj); slips eta5-Cp to eta2 in the gas phase and decomposes CpMo(CO)3H on TiSi |
 
 `dispersion_xc` must match the functional the model was trained on, because
-it selects the D3(BJ) damping parameters. UMA models (`uma_s`, `uma_m` with
-`uma_task: oc20` or `omat`) also work but need a Hugging Face account with
-access to the model repository.
+it selects the D3(BJ) damping parameters.
+
+UMA models also work: set `calculator.name: uma_s` (or `uma_m`),
+`calculator.uma_model` to a local checkpoint (or a registered name such as
+`uma-s-1p2`; `null` downloads `uma-s-1p1`, which needs a Hugging Face login),
+and a periodic `uma_task`:
+
+```yaml
+calculator:
+  name: uma_s
+  uma_model: /home/lungyi/.cache/uma/uma-s-1p2p1.pt
+  uma_task: oc20          # adsorbate + surface (RPBE)
+  dispersion: true        # D3(BJ) added on top; skipped for oc25 / odac / omc
+  dispersion_xc: rpbe
+```
+
+Only the `omat` and `omc` tasks have a trained stress head. With any other
+task (e.g. `oc20`) the bulk keeps the lattice of the input file and only the
+atomic positions are relaxed; a warning says so in the log. UMA ignores
+`dtype_screen` / `dtype_final`, so one model instance serves both stages.
 
 A CUDA GPU is used automatically when available (`calculator.device: auto`).
 For the TiSi example (240-atom slab, 18-atom molecule) one force call takes
@@ -689,7 +724,7 @@ ase-adsorb run --molecule CpMo_CO3H.xyz --solid TiSi.cif \
 ```
 
 Options: `--molecule`, `--solid`, `--calculator`, `--mace-mp-model`,
-`--uma-task`, `--device`, `--miller H K L` (repeatable), `--budget`
+`--uma-model`, `--uma-task`, `--device`, `--miller H K L` (repeatable), `--budget`
 (seconds per termination, 0 = unlimited), `--run-dir`. `dispersion_xc` and
 all other settings are set in the configuration file.
 
@@ -884,7 +919,16 @@ or CO leaving the metal is.
   structures decompose with E_ads down to -9.5 eV; with the r2SCAN MatPES
   model the gas-phase molecule stays eta5 and 24 of 25 relaxed structures
   stay intact, binding through CO legs or the Cp ring with E_ads of -0.4 to
-  -3.0 eV.
+  -3.0 eV. With UMA-S 1.2 (`oc20` + D3(BJ, rpbe), experimental lattice) the
+  gas-phase molecule stays eta5, but each step is about 4x slower, so only 7
+  structures were relaxed; 2 of them decompose (one embedded in the surface
+  at -11 eV).
+- Check the approach scan: at the largest clearance E_ads should be close to
+  0 eV. UMA energies are not additive between systems of different
+  composition (most likely because UMA mixes its experts according to the
+  composition of the whole system): on TiSi the scan levels off at about
+  -0.6 eV even beyond the 6 Å model cutoff, so every E_ads of that run is
+  shifted by roughly this amount (rankings within the run are unaffected).
 
 ### Configuration reference
 
@@ -903,16 +947,17 @@ with comments). Lengths in Å, energies in eV, angles in degrees, times in s.
 | `reference_axis` | `auto` | or `[[atoms A], [atoms B]]`: u = centroid(A) -> centroid(B) |
 | **calculator** | | must be periodic |
 | `name` | `macemp` | `macemp`, `uma_s`, `uma_m`, `emt` (tests only) |
-| `mace_mp_model` | `medium-mpa-0` | model name or local model file |
-| `fallback_models` | `[medium, small]` | tried if the model cannot be loaded; `[]` to disable |
-| `uma_task` | `oc20` | `oc20` (adsorbate + surface) or `omat` (bulk); UMA only |
-| `dispersion` | `true` | add D3(BJ) (macemp) |
-| `dispersion_xc` | `pbe` | D3(BJ) parameters: `pbe`, or `r2scan` for r2SCAN models |
+| `mace_mp_model` | `medium-mpa-0` | macemp: model name or local model file |
+| `fallback_models` | `[medium, small]` | macemp: tried if the model cannot be loaded; `[]` to disable |
+| `uma_model` | `null` | UMA: `null` (= `uma-s-1p1` / `uma-m-1p1`), a registered name, or a local `.pt` checkpoint |
+| `uma_task` | `oc20` | UMA: `oc20` (adsorbate + surface), `omat` (bulk), `oc22`, `oc25`, `odac`, `omc` |
+| `dispersion` | `true` | add D3(BJ); not added for UMA `oc25` / `odac` / `omc` (trained with D3) |
+| `dispersion_xc` | `pbe` | D3(BJ) parameters: `pbe`; `r2scan` for r2SCAN models; `rpbe` for UMA `oc20` |
 | `device` | `auto` | `auto`, `cuda`, `cpu` |
 | `dtype_screen`, `dtype_final` | `float32`, `float64` | MACE precision for relaxations / final energies |
 | **surface** | | |
 | `input_type` | `auto` | `auto`, `bulk` or `slab` |
-| `relax_bulk` | `true` | relax the bulk cell before cutting |
+| `relax_bulk` | `true` | relax the bulk cell before cutting (positions only for UMA tasks without stress) |
 | `miller_indices` | `[[0, 0, 1]]` | surfaces to build |
 | `min_slab_thickness` | `8.0` | atom-to-atom slab thickness |
 | `max_terminations` | `3` | terminations kept per Miller index |
@@ -1008,7 +1053,9 @@ stages; `analyze_molecule(atoms, config.molecule_props)` is what
 | `CondaError: Run 'conda init' before 'conda activate'` | `source ~/miniconda3/etc/profile.d/conda.sh`, then `conda activate <env>`; or `conda init bash` once |
 | `ase-adsorb: command not found` | activate the environment, or `pip install -e ".[adsorption]"`, or use `python run_ase_adsorption.py` |
 | model download hangs or fails | download the model file once and set `calculator.mace_mp_model` to its path, `fallback_models: []` |
-| `... is a molecular model ... cannot describe surfaces` | use `macemp`, or `uma_s`/`uma_m` with `uma_task: oc20` or `omat` |
+| `... is a molecular model ... cannot describe surfaces` | use `macemp`, or `uma_s`/`uma_m` with a periodic `uma_task` (e.g. `oc20`, `omat`) |
+| UMA asks for a Hugging Face login | set `calculator.uma_model` to a local `.pt` checkpoint |
+| `uma_task ... has no trained stress head` warning | expected for `oc20` etc.; the input lattice is kept. Use experimental lattice constants in the CIF |
 | `... does not support element(s)` | the calculator (e.g. `emt`) lacks an element; use `macemp` or UMA |
 | `already contains a run` | rename the old run directory, set `run_dir`, or `ase-adsorb resume` it |
 | `resume` refuses: settings differ | the run's settings were edited; start a new run |
@@ -1130,7 +1177,8 @@ keep the existing backends unchanged: `device="auto"`, `dtype="float64"`
 (MACE `default_dtype`), `dispersion=False` (D3(BJ) for `macemp`),
 `mace_mp_model="medium-mpa-0"`, `uma_task="omol"`, `dispersion_xc="pbe"` (the
 functional whose D3(BJ) parameters are used; use `"r2scan"` with r2SCAN-trained
-models such as `MACE-matpes-r2scan-omat-ft.model`).
+models such as `MACE-matpes-r2scan-omat-ft.model`), `uma_model=""` (registered
+FAIRChem model name or checkpoint path; empty keeps the previous defaults).
 
 Use `run_frequency_analysis()` for an optimized XYZ file. Use
 `analyze_frequencies_atoms()` for an ASE `Atoms` object. Both return

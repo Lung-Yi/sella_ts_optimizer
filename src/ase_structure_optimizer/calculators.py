@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -24,6 +25,7 @@ class CalculatorConfig:
     mace_mp_model: str = "medium-mpa-0"
     uma_task: str = "omol"
     dispersion_xc: str = "pbe"
+    uma_model: str = ""
 
 
 @dataclass(frozen=True)
@@ -34,9 +36,35 @@ class CalculatorCapabilities:
     uses_charge_spin: bool
     elements: frozenset[str] | None
     level_of_theory: str
+    stress: bool = True
 
 
-UMA_TASKS = ("omol", "omat", "oc20")
+UMA_TASKS = ("omol", "omat", "oc20", "oc22", "oc25", "odac", "omc")
+
+# Training level of theory of each UMA task head.
+UMA_TASK_LEVELS = {
+    "omol": "wB97M-V (OMol25)",
+    "omat": "PBE/PBE+U (OMat24)",
+    "oc20": "RPBE (OC20)",
+    "oc22": "PBE+U (OC22)",
+    "oc25": "RPBE+D3 (OC25)",
+    "odac": "PBE-D3 (ODAC23)",
+    "omc": "PBE-D3 (OMC25)",
+}
+
+# UMA tasks with a trained stress head; the others cannot relax a cell.
+UMA_TASKS_WITH_STRESS = frozenset({"omat", "omc"})
+
+# UMA tasks whose training data already contain D3 dispersion; adding D3 again
+# would double count it, so `dispersion=True` is ignored for them.
+UMA_TASKS_WITH_D3 = frozenset({"oc25", "odac", "omc"})
+
+# Default pretrained model of each FAIRChem backend (used when uma_model is empty).
+FAIRCHEM_DEFAULT_MODELS = {
+    "uma_s": "uma-s-1p1",
+    "uma_m": "uma-m-1p1",
+    "eSEN": "esen-sm-conserving-all-omol",
+}
 
 EMT_ELEMENTS = frozenset({"Al", "Cu", "Ag", "Au", "Ni", "Pd", "Pt", "H", "C", "N", "O"})
 
@@ -116,16 +144,31 @@ def build_calculator(config: CalculatorConfig) -> Any:
         _validate_uma_task(config)
         from fairchem.core import FAIRChemCalculator, pretrained_mlip
 
-        model_names = {
-            "uma_s": "uma-s-1p1",
-            "uma_m": "uma-m-1p1",
-            "eSEN": "esen-sm-conserving-all-omol",
-        }
+        model = config.uma_model or FAIRCHEM_DEFAULT_MODELS[name]
         device = _resolve_device(config.device)
-        predictor = pretrained_mlip.get_predict_unit(model_names[name], device=device)
+        if _is_model_file(model):
+            predictor = pretrained_mlip.load_predict_unit(str(Path(model).expanduser()), device=device)
+        else:
+            predictor = pretrained_mlip.get_predict_unit(model, device=device)
         if name == "eSEN":
             return FAIRChemCalculator(predictor)
-        return FAIRChemCalculator(predictor, task_name=config.uma_task)
+        calculator = FAIRChemCalculator(predictor, task_name=config.uma_task)
+        if _uma_adds_d3(config):
+            import torch
+            from ase import units
+            from ase.calculators.mixing import SumCalculator
+            from torch_dftd.torch_dftd3_calculator import TorchDFTD3Calculator
+
+            # Same D3(BJ) settings as mace_mp(dispersion=True).
+            d3 = TorchDFTD3Calculator(
+                device=device,
+                damping="bj",
+                dtype=torch.float32 if config.dtype == "float32" else torch.float64,
+                xc=config.dispersion_xc,
+                cutoff=40.0 * units.Bohr,
+            )
+            return SumCalculator([calculator, d3])
+        return calculator
 
     if name == "aimnet2":
         from aimnet2calc import AIMNet2ASE
@@ -208,17 +251,16 @@ def calculator_capabilities(config: CalculatorConfig) -> CalculatorCapabilities:
 
     if name in {"uma_s", "uma_m"}:
         _validate_uma_task(config)
-        levels = {
-            "omol": "wB97M-V (OMol25)",
-            "omat": "PBE/PBE+U (OMat24)",
-            "oc20": "RPBE (OC20)",
-        }
+        level = UMA_TASK_LEVELS[config.uma_task]
+        if _uma_adds_d3(config):
+            level += f" + D3(BJ, {config.dispersion_xc})"
         molecular = config.uma_task == "omol"
         return CalculatorCapabilities(
             periodic=not molecular,
             uses_charge_spin=molecular,
             elements=None,
-            level_of_theory=levels[config.uma_task],
+            level_of_theory=level,
+            stress=config.uma_task in UMA_TASKS_WITH_STRESS,
         )
 
     if name == "eSEN":
@@ -265,6 +307,30 @@ def _macemp_level(model: str) -> str:
     return "PBE (MPtrj/MPA)"
 
 
+def model_label(config: CalculatorConfig) -> str:
+    """Name or file path of the ML model behind `config`, else the calculator name."""
+
+    if config.name == "macemp":
+        return config.mace_mp_model
+    if config.name == "maceomol":
+        return config.mace_model
+    if config.name in FAIRCHEM_DEFAULT_MODELS:
+        return config.uma_model or FAIRCHEM_DEFAULT_MODELS[config.name]
+    return config.name
+
+
+def _is_model_file(model: str) -> bool:
+    """True when a FAIRChem model is given as a checkpoint file instead of a registered name."""
+
+    return model.endswith((".pt", ".ckpt")) or "/" in model or "\\" in model or Path(model).expanduser().is_file()
+
+
+def _uma_adds_d3(config: CalculatorConfig) -> bool:
+    """Whether D3(BJ) is added on top of a UMA task (never for tasks trained with D3)."""
+
+    return config.name in {"uma_s", "uma_m"} and config.dispersion and config.uma_task not in UMA_TASKS_WITH_D3
+
+
 def _validate_uma_task(config: CalculatorConfig) -> None:
     if config.uma_task not in UMA_TASKS:
         choices = ", ".join(UMA_TASKS)
@@ -272,7 +338,7 @@ def _validate_uma_task(config: CalculatorConfig) -> None:
     if config.name == "eSEN" and config.uma_task != "omol":
         raise ValueError(
             f"Calculator 'eSEN' only supports uma_task='omol' (got '{config.uma_task}'); "
-            "use 'uma_s' or 'uma_m' for the omat / oc20 tasks."
+            "use 'uma_s' or 'uma_m' for the periodic tasks."
         )
 
 

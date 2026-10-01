@@ -25,6 +25,7 @@ import numpy as np
 from ase import Atoms
 from ase.io import read, write
 
+from ..calculators import calculator_capabilities
 from ..structures import read_structure
 from .analysis import (
     adsorption_height,
@@ -361,6 +362,13 @@ def _bulk_terminations(context: RunContext, solid: Atoms, vacuum: float) -> list
 
     started = time.perf_counter()
     if surface.relax_bulk:
+        relax_cell = calculator_capabilities(calculators.final).stress
+        if not relax_cell:
+            logger.warning(
+                "uma_task %s has no trained stress head: keeping the input lattice and relaxing only the "
+                "atomic positions of the bulk (use uma_task omat, or set surface.relax_bulk: false)",
+                calculators.final.uma_task,
+            )
         result = relax_structure(
             bulk,
             calculators,
@@ -369,7 +377,7 @@ def _bulk_terminations(context: RunContext, solid: Atoms, vacuum: float) -> list
             optimizer=budget.relax_optimizer,
             fmax=budget.fmax,
             max_steps=budget.max_steps,
-            cell_filter=True,
+            cell_filter=relax_cell,
             logfile=bulk_dir / "bulk_opt.log",
         )
         if not result.converged:

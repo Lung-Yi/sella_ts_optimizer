@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Literal, Mapping
 
 from ..calculators import (
+    FAIRCHEM_DEFAULT_MODELS,
+    UMA_TASKS,
     CalculatorCapabilities,
     CalculatorConfig,
     available_calculators,
@@ -209,7 +211,7 @@ def _require_periodic(config: CalculatorConfig) -> CalculatorCapabilities:
             f"calculator '{config.name}'"
             + (f" with uma_task '{config.uma_task}'" if config.name in {"uma_s", "uma_m", "eSEN"} else "")
             + f" is a molecular model ({capabilities.level_of_theory}) and cannot describe "
-            "surfaces or bulk solids; use macemp, uma_s/uma_m with uma_task omat or oc20, "
+            "surfaces or bulk solids; use macemp, uma_s/uma_m with a periodic uma_task (e.g. oc20, omat), "
             "or emt (tests only)"
         )
     return capabilities
@@ -264,7 +266,8 @@ class CalculatorSection:
     name: str = _setting("macemp", _calculator_name)
     mace_mp_model: str = _setting("medium-mpa-0", _str)
     fallback_models: tuple[str, ...] = _setting(("medium", "small"), _list(_str))
-    uma_task: str = _setting("oc20", _choice("omol", "omat", "oc20"))
+    uma_model: str | None = _setting(None, _optional(_str))
+    uma_task: str = _setting("oc20", _choice(*UMA_TASKS))
     dispersion: bool = _setting(True, _bool)
     dispersion_xc: str = _setting("pbe", _str)
     device: str = _setting("auto", _str)
@@ -282,16 +285,22 @@ class CalculatorSection:
 
         if stage not in ("screen", "final"):
             raise ValueError(f"stage must be 'screen' or 'final', got {stage!r}")
+        dtype = self.dtype_screen if stage == "screen" else self.dtype_final
+        if self.name in FAIRCHEM_DEFAULT_MODELS:
+            # FAIRChem models run at their own precision; one shared setting
+            # lets both stages reuse the same loaded model.
+            dtype = self.dtype_final
         return CalculatorConfig(
             name=self.name,
             charge=charge,
             multiplicity=multiplicity,
             device=self.device,
-            dtype=self.dtype_screen if stage == "screen" else self.dtype_final,
+            dtype=dtype,
             dispersion=self.dispersion,
             dispersion_xc=self.dispersion_xc,
             mace_mp_model=mace_mp_model or self.mace_mp_model,
             uma_task=self.uma_task,
+            uma_model=self.uma_model or "",
         )
 
 
@@ -652,19 +661,22 @@ molecule_props:
 
 calculator:                    # must be a periodic calculator
   # macemp (default): MACE-MP materials model, PBE level (MPtrj/MPA), plus D3(BJ) below.
-  # uma_s / uma_m: FAIRChem UMA; uma_task oc20 is trained for adsorbate+surface
-  #   (RPBE, no dispersion), omat for bulk materials. Never mix energies from
+  # uma_s / uma_m: FAIRChem UMA. uma_task oc20 is trained for adsorbate+surface
+  #   (RPBE), omat for bulk materials (PBE/PBE+U). Never mix energies from
   #   different models or tasks.
   # emt: ASE EMT, only for tests.
   # Molecular models (maceomol, aimnet2, eSEN, UMA omol, xtb, qchem) are rejected.
   # Periodic MLIPs see almost no isolated molecules in training, so the gas-phase
   # reference energy is an extrapolation: validate final numbers with DFT.
   name: macemp
-  mace_mp_model: medium-mpa-0  # or a local model file path (no internet access)
-  fallback_models: [medium, small]   # tried in order if the macemp model fails to load
-  uma_task: oc20               # uma_s / uma_m only: omat or oc20
-  dispersion: true             # macemp D3(BJ), needs torch-dftd; ignored by UMA
-  dispersion_xc: pbe           # functional of the D3(BJ) damping parameters: pbe, or r2scan for r2SCAN-trained models
+  mace_mp_model: medium-mpa-0  # macemp only: model name, or a local model file path (no internet access)
+  fallback_models: [medium, small]   # macemp only: tried in order if the model fails to load
+  uma_model: null              # uma_s / uma_m only: null = uma-s-1p1 / uma-m-1p1 (HuggingFace login),
+                               #   a registered name (uma-s-1p2), or a local checkpoint (.pt) path
+  uma_task: oc20               # uma_s / uma_m only: oc20, omat, oc22, oc25, odac or omc
+  dispersion: true             # add D3(BJ) (needs torch-dftd); skipped for UMA oc25/odac/omc (trained with D3)
+  dispersion_xc: pbe           # functional of the D3(BJ) damping parameters: pbe, r2scan (r2SCAN-trained
+                               #   MACE), rpbe (UMA oc20 / oc25)
   device: auto                 # auto / cuda / cpu
   dtype_screen: float32        # macemp dtype for prescreening and relaxations
   dtype_final: float64         # macemp dtype for the final single points
