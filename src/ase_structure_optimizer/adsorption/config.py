@@ -267,6 +267,7 @@ class CalculatorSection:
     mace_mp_model: str = _setting("medium-mpa-0", _str)
     fallback_models: tuple[str, ...] = _setting(("medium", "small"), _list(_str))
     uma_model: str | None = _setting(None, _optional(_str))
+    uma_merge_mole: bool = _setting(False, _bool)
     uma_task: str = _setting("oc20", _choice(*UMA_TASKS))
     dispersion: bool = _setting(True, _bool)
     dispersion_xc: str = _setting("pbe", _str)
@@ -301,6 +302,7 @@ class CalculatorSection:
             mace_mp_model=mace_mp_model or self.mace_mp_model,
             uma_task=self.uma_task,
             uma_model=self.uma_model or "",
+            uma_merge_mole=self.uma_merge_mole,
         )
 
 
@@ -673,6 +675,8 @@ calculator:                    # must be a periodic calculator
   fallback_models: [medium, small]   # macemp only: tried in order if the model fails to load
   uma_model: null              # uma_s / uma_m only: null = uma-s-1p1 / uma-m-1p1 (HuggingFace login),
                                #   a registered name (uma-s-1p2), or a local checkpoint (.pt) path
+  uma_merge_mole: false        # uma_s / uma_m only: merge the experts once per composition (same energies,
+                               #   much less GPU memory; recommended for uma_m on GPUs with <= 16 GB)
   uma_task: oc20               # uma_s / uma_m only: oc20, omat, oc22, oc25, odac or omc
   dispersion: true             # add D3(BJ) (needs torch-dftd); skipped for UMA oc25/odac/omc (trained with D3)
   dispersion_xc: pbe           # functional of the D3(BJ) damping parameters: pbe, r2scan (r2SCAN-trained

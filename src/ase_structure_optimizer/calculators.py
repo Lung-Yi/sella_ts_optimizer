@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
+import functools
+import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
+
+from ase.calculators.calculator import Calculator, all_changes
 
 
 @dataclass(frozen=True)
@@ -26,6 +31,7 @@ class CalculatorConfig:
     uma_task: str = "omol"
     dispersion_xc: str = "pbe"
     uma_model: str = ""
+    uma_merge_mole: bool = False
 
 
 @dataclass(frozen=True)
@@ -146,13 +152,13 @@ def build_calculator(config: CalculatorConfig) -> Any:
 
         model = config.uma_model or FAIRCHEM_DEFAULT_MODELS[name]
         device = _resolve_device(config.device)
-        if _is_model_file(model):
-            predictor = pretrained_mlip.load_predict_unit(str(Path(model).expanduser()), device=device)
+        if name != "eSEN" and (config.uma_merge_mole or config.uma_task != "omol"):
+            calculator = UMATaskCalculator(model, config.uma_task, device, merge_mole=config.uma_merge_mole)
         else:
-            predictor = pretrained_mlip.get_predict_unit(model, device=device)
-        if name == "eSEN":
-            return FAIRChemCalculator(predictor)
-        calculator = FAIRChemCalculator(predictor, task_name=config.uma_task)
+            predictor = _fairchem_predict_unit(model, device)
+            if name == "eSEN":
+                return FAIRChemCalculator(predictor)
+            calculator = FAIRChemCalculator(predictor, task_name=config.uma_task)
         if _uma_adds_d3(config):
             import torch
             from ase import units
@@ -305,6 +311,113 @@ def _macemp_level(model: str) -> str:
     if "matpes" in lowered:
         return "PBE (MatPES)"
     return "PBE (MPtrj/MPA)"
+
+
+class UMATaskCalculator(Calculator):
+    """FAIRChem UMA calculator for one task, with consistent charge/spin inputs.
+
+    FAIRChemCalculator reads `atoms.info["charge"]` and `atoms.info["spin"]`
+    for every task, and they change the energy even for the periodic tasks,
+    which were trained with charge 0 and spin 0. Structures in a workflow
+    carry unrelated or inconsistent values there, so for every task except
+    `omol` both are fixed to 0; `omol` keeps reading them from `atoms.info`.
+
+    With `merge_mole=True` the mixture-of-linear-experts is merged for each
+    reduced composition (and charge/spin) on first use, which gives the same
+    energies as the full model with far less memory and compute; one merged
+    model is loaded per distinct composition (seconds to a minute each).
+    """
+
+    implemented_properties = ["energy", "free_energy", "forces", "stress"]
+
+    def __init__(self, model: str, task: str, device: str, merge_mole: bool = False):
+        super().__init__()
+        self.model = model
+        self.task = task
+        self.device = device
+        self.merge_mole = merge_mole
+        self._calculators: dict[Any, Any] = {}
+        if merge_mole:
+            if _is_model_file(model) and not Path(model).expanduser().is_file():
+                raise FileNotFoundError(f"UMA checkpoint not found: {model}")
+        else:
+            # Load now so that loading errors surface when the calculator is built.
+            self._calculators[None] = self._new_calculator()
+
+    def calculate(self, atoms=None, properties=("energy",), system_changes=all_changes):
+        super().calculate(atoms, properties, system_changes)
+        atoms = self.atoms.copy()
+        if self.task != "omol":
+            atoms.info["charge"] = 0
+            atoms.info["spin"] = 0
+        key = None
+        if self.merge_mole:
+            key = (_reduced_composition(atoms.numbers), atoms.info.get("charge"), atoms.info.get("spin"))
+        if key not in self._calculators:
+            self._calculators[key] = self._new_calculator()
+        calculator = self._calculators[key]
+        atoms.calc = calculator
+        for name in properties:
+            self.results[name] = calculator.get_property(name, atoms)
+        if "energy" in self.results:
+            self.results.setdefault("free_energy", self.results["energy"])
+
+    def _new_calculator(self) -> Any:
+        from fairchem.core import FAIRChemCalculator
+
+        settings = None
+        if self.merge_mole:
+            from fairchem.core.units.mlip_unit.api.inference import InferenceSettings
+
+            settings = InferenceSettings(merge_mole=True)
+        predictor = _fairchem_predict_unit(self.model, self.device, settings)
+        return FAIRChemCalculator(predictor, task_name=self.task)
+
+
+def _reduced_composition(numbers) -> tuple[tuple[int, int], ...]:
+    """Element counts divided by their greatest common divisor, e.g. Ti4Si4 -> ((14, 1), (22, 1))."""
+
+    counts: dict[int, int] = {}
+    for number in numbers:
+        counts[int(number)] = counts.get(int(number), 0) + 1
+    divisor = functools.reduce(math.gcd, counts.values())
+    return tuple(sorted((number, count // divisor) for number, count in counts.items()))
+
+
+def _fairchem_predict_unit(model: str, device: str, inference_settings: Any = None) -> Any:
+    """Load a FAIRChem predictor from a registered model name or a checkpoint file."""
+
+    from fairchem.core import pretrained_mlip
+
+    kwargs = {"device": device}
+    if inference_settings is not None:
+        kwargs["inference_settings"] = inference_settings
+    if _is_model_file(model):
+        with _mmap_torch_load():
+            return pretrained_mlip.load_predict_unit(str(Path(model).expanduser()), **kwargs)
+    return pretrained_mlip.get_predict_unit(model, **kwargs)
+
+
+@contextlib.contextmanager
+def _mmap_torch_load() -> Iterator[None]:
+    """Memory-map checkpoints while FAIRChem loads them.
+
+    FAIRChem reads the whole checkpoint (model and EMA weights) into RAM; a
+    UMA-M checkpoint is 11 GB, which does not fit next to the model on a
+    16 GB machine. With mmap the weights are paged in only when copied.
+    """
+
+    import torch
+
+    original = getattr(torch, "load", None)
+    if original is None:
+        yield
+        return
+    torch.load = functools.partial(original, mmap=True)
+    try:
+        yield
+    finally:
+        torch.load = original
 
 
 def model_label(config: CalculatorConfig) -> str:

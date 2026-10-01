@@ -308,12 +308,12 @@ def test_uma_dispersion_adds_d3_except_for_d3_trained_tasks(fake_backends, monke
     assert "D3(BJ, rpbe)" in calculator_capabilities(config).level_of_theory
 
     d3_trained = dataclasses.replace(config, uma_task="oc25")
-    assert build_calculator(d3_trained).source == "FAIRChemCalculator"
+    assert isinstance(build_calculator(d3_trained), calculators.UMATaskCalculator)
     assert len(d3.calls) == 1
     assert calculator_capabilities(d3_trained).level_of_theory == "RPBE+D3 (OC25)"
 
-    # Without dispersion the plain UMA calculator is returned, as before.
-    assert build_calculator(dataclasses.replace(config, dispersion=False)).source == "FAIRChemCalculator"
+    # Without dispersion the UMA calculator is returned unwrapped.
+    assert isinstance(build_calculator(dataclasses.replace(config, dispersion=False)), calculators.UMATaskCalculator)
 
 
 @pytest.mark.parametrize("task", ["oc22", "oc25", "odac", "omc"])
@@ -333,3 +333,67 @@ def test_stress_head_only_for_omat_and_omc():
     assert calculator_capabilities(CalculatorConfig(name="uma_s", uma_task="omat")).stress
     assert not calculator_capabilities(CalculatorConfig(name="uma_s", uma_task="oc20")).stress
     assert calculator_capabilities(CalculatorConfig(name="macemp")).stress
+
+
+def test_merged_mole_calculator_loads_one_model_per_reduced_composition(fake_backends, monkeypatch):
+    from ase import Atoms
+
+    loads = []
+
+    def load_predict_unit(path, **kwargs):
+        loads.append((path, kwargs))
+        return types.SimpleNamespace(index=len(loads))
+
+    class FakeFairchem:
+        def __init__(self, predictor, task_name):
+            self.predictor, self.task_name = predictor, task_name
+
+        def get_property(self, name, atoms):
+            assert name == "energy"
+            return float(self.predictor.index * 100 + len(atoms))
+
+    monkeypatch.setattr(
+        sys.modules["fairchem.core"].pretrained_mlip, "load_predict_unit", load_predict_unit, raising=False
+    )
+    monkeypatch.setattr(sys.modules["fairchem.core"], "FAIRChemCalculator", FakeFairchem)
+    inference = types.ModuleType("fairchem.core.units.mlip_unit.api.inference")
+    inference.InferenceSettings = lambda **kwargs: kwargs
+    monkeypatch.setitem(sys.modules, "fairchem.core.units.mlip_unit.api.inference", inference)
+
+    monkeypatch.setattr(calculators.Path, "is_file", lambda self: True)
+    calc = build_calculator(
+        CalculatorConfig(name="uma_m", uma_task="oc20", uma_model="/m/uma-m.pt", uma_merge_mole=True, device="cpu")
+    )
+    assert isinstance(calc, calculators.UMATaskCalculator)
+    slab = Atoms("Ti2Si2", positions=[[0, 0, 0], [2, 0, 0], [0, 2, 0], [2, 2, 0]])
+    bulk = Atoms("TiSi", positions=[[0, 0, 0], [2, 0, 0]])
+    co = Atoms("CO", positions=[[0, 0, 0], [0, 0, 1.1]])
+    energies = []
+    for atoms in (slab, bulk, co, slab):
+        atoms.calc = calc
+        energies.append(atoms.get_potential_energy())
+    # Ti2Si2 and TiSi share a reduced composition, so only two models are loaded.
+    assert len(loads) == 2 and energies == [104.0, 102.0, 202.0, 104.0]
+    assert all(kwargs["inference_settings"] == {"merge_mole": True} for _, kwargs in loads)
+
+
+def test_periodic_uma_tasks_fix_charge_and_spin(fake_backends, monkeypatch):
+    from ase import Atoms
+
+    seen = []
+
+    class FakeFairchem:
+        def __init__(self, predictor, task_name):
+            self.task_name = task_name
+
+        def get_property(self, name, atoms):
+            seen.append((self.task_name, atoms.info.get("charge"), atoms.info.get("spin")))
+            return 0.0
+
+    monkeypatch.setattr(sys.modules["fairchem.core"], "FAIRChemCalculator", FakeFairchem)
+    atoms = Atoms("CO", positions=[[0, 0, 0], [0, 0, 1.1]], info={"charge": 1, "spin": 2})
+    atoms.calc = build_calculator(CalculatorConfig(name="uma_s", uma_task="oc20", device="cpu"))
+    atoms.get_potential_energy()
+    assert seen == [("oc20", 0, 0)] and atoms.info["spin"] == 2
+    # omol keeps the plain FAIRChemCalculator and its charge/spin handling.
+    assert isinstance(build_calculator(CalculatorConfig(name="uma_s", device="cpu")), FakeFairchem)

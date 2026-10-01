@@ -464,6 +464,15 @@ config = CalculatorConfig(
 )
 ```
 
+For every task except `omol`, the UMA calculator passes charge 0 and spin 0
+to the model (the training convention of the periodic datasets): FAIRChem
+otherwise reads `atoms.info["charge"]` / `["spin"]`, which shift periodic
+energies by eV. `uma_merge_mole=True` merges UMA's mixture of experts once
+per reduced composition. This gives the same energies (within 1e-5 eV) with
+much less memory and compute, and is what makes UMA-M usable on an 8 GB
+GPU. Local checkpoints are memory-mapped while loading, so the 11 GB UMA-M
+file loads on a 16 GB machine.
+
 ## Periodic Systems
 
 The core optimization functions also accept periodic ASE `Atoms` (bulk
@@ -621,7 +630,8 @@ and a periodic `uma_task`:
 ```yaml
 calculator:
   name: uma_s
-  uma_model: /home/lungyi/.cache/uma/uma-s-1p2p1.pt
+  uma_model: /home/lungyi/.cache/uma/uma-s-1p2p1.pt   # or uma-m-1p1.pt
+  uma_merge_mole: false   # true for uma-m on small GPUs (one merged model per composition)
   uma_task: oc20          # adsorbate + surface (RPBE)
   dispersion: true        # D3(BJ) added on top; skipped for oc25 / odac / omc
   dispersion_xc: rpbe
@@ -631,6 +641,11 @@ Only the `omat` and `omc` tasks have a trained stress head. With any other
 task (e.g. `oc20`) the bulk keeps the lattice of the input file and only the
 atomic positions are relaxed; a warning says so in the log. UMA ignores
 `dtype_screen` / `dtype_final`, so one model instance serves both stages.
+
+UMA-M (`uma-m-1p1.pt`, 11 GB) needs `uma_merge_mole: true` on an 8 GB GPU:
+unmerged it fills the GPU and takes about 5.9 s per force call for the
+258-atom TiSi system; merged it takes about 3.0 s and 2.6 GB. UMA-S 1.2 takes
+about 0.25 s. Raise `budget.wall_time_per_termination` accordingly.
 
 A CUDA GPU is used automatically when available (`calculator.device: auto`).
 For the TiSi example (240-atom slab, 18-atom molecule) one force call takes
@@ -950,6 +965,7 @@ with comments). Lengths in Å, energies in eV, angles in degrees, times in s.
 | `mace_mp_model` | `medium-mpa-0` | macemp: model name or local model file |
 | `fallback_models` | `[medium, small]` | macemp: tried if the model cannot be loaded; `[]` to disable |
 | `uma_model` | `null` | UMA: `null` (= `uma-s-1p1` / `uma-m-1p1`), a registered name, or a local `.pt` checkpoint |
+| `uma_merge_mole` | `false` | UMA: merge the experts once per composition (same energies, much less memory/compute) |
 | `uma_task` | `oc20` | UMA: `oc20` (adsorbate + surface), `omat` (bulk), `oc22`, `oc25`, `odac`, `omc` |
 | `dispersion` | `true` | add D3(BJ); not added for UMA `oc25` / `odac` / `omc` (trained with D3) |
 | `dispersion_xc` | `pbe` | D3(BJ) parameters: `pbe`; `r2scan` for r2SCAN models; `rpbe` for UMA `oc20` |
@@ -1055,6 +1071,7 @@ stages; `analyze_molecule(atoms, config.molecule_props)` is what
 | model download hangs or fails | download the model file once and set `calculator.mace_mp_model` to its path, `fallback_models: []` |
 | `... is a molecular model ... cannot describe surfaces` | use `macemp`, or `uma_s`/`uma_m` with a periodic `uma_task` (e.g. `oc20`, `omat`) |
 | UMA asks for a Hugging Face login | set `calculator.uma_model` to a local `.pt` checkpoint |
+| UMA-M killed while loading / CUDA out of memory | set `calculator.uma_merge_mole: true` |
 | `uma_task ... has no trained stress head` warning | expected for `oc20` etc.; the input lattice is kept. Use experimental lattice constants in the CIF |
 | `... does not support element(s)` | the calculator (e.g. `emt`) lacks an element; use `macemp` or UMA |
 | `already contains a run` | rename the old run directory, set `run_dir`, or `ase-adsorb resume` it |
