@@ -473,6 +473,86 @@ much less memory and compute, and is what makes UMA-M usable on an 8 GB
 GPU. Local checkpoints are memory-mapped while loading, so the 11 GB UMA-M
 file loads on a 16 GB machine.
 
+### Multi-head MACE models and `mace_head`
+
+Most MACE model files contain one output **head**: one set of readout layers
+trained on one dataset at one level of theory. MACE-MP-0b3, MACE-MPA-0 and
+`MACE-matpes-r2scan-omat-ft` are single-head models; their only head is
+called `default`. A **multi-head** model such as MACE-MH-1
+(`mace-mh-1.model`) shares one backbone between several heads, each trained
+on a different dataset and functional. The head decides which potential
+energy surface you get. Energies from different heads are on different
+scales and must never be mixed in one E_ads.
+
+`mace_head` (`CalculatorConfig.mace_head`, `calculator.mace_head` in the
+adsorption configuration, `--mace-head` on the command line) selects the
+head. It applies only to `macemp`.
+
+| model file | heads | `mace_head` |
+|---|---|---|
+| `mace-mp-0b3-medium.model`, `medium-mpa-0`, ... | `default` | leave unset |
+| `MACE-matpes-r2scan-omat-ft.model` | `default` | leave unset |
+| `mace-mh-1.model` | `omat_pbe`, `mp_pbe_refit_add`, `matpes_r2scan`, `oc20_usemppbe`, `omol`, `spice_wB97M` | **required** |
+
+Default and errors:
+
+- Unset (`""` / `null`, the default): MACE uses the model's only head, or its
+  head named `default`. A multi-head model without a `default` head, such as
+  MACE-MH-1, fails to load with `Head keyword was not provided ...`.
+- Set on a model that lacks that head (including any head name on a
+  single-head model): an error listing the available heads. MACE itself
+  would silently fall back to the last head; this package refuses instead.
+
+To list the heads of a model file:
+
+```python
+from mace.calculators import mace_mp
+
+calc = mace_mp(model="/path/to/model.model", device="cpu", head="?")  # warns, then falls back
+print(calc.available_heads)
+```
+
+**Choosing a head.** The table summarizes each head's training data from
+the MACE-MH-1 release and the head names; check the model card for details.
+Pick the head whose training data look most like your
+system and whose functional you want to reproduce (for example the DFT you
+will validate against). Set `dispersion_xc` to the functional of that head
+when D3 is on.
+
+| head | training data, level of theory | periodic | `dispersion_xc` | use it for |
+|---|---|---|---|---|
+| `omat_pbe` | OMat24, PBE/PBE+U, many off-equilibrium structures | yes | `pbe` | bulk and surfaces; the most general materials head and the best TiSi lattice here |
+| `mp_pbe_refit_add` | Materials Project (MPtrj-type), PBE/PBE+U, mostly near-equilibrium | yes | `pbe` | comparison with Materials Project (PBE) data |
+| `matpes_r2scan` | MatPES, r2SCAN | yes | `r2scan` | when an r2SCAN-level surface is wanted; molecules on surfaces |
+| `oc20_usemppbe` | OC20 adsorbate + slab, PBE with Materials-Project-compatible settings (as the name indicates) | yes | `pbe` | small adsorbates (C, H, N, O fragments) on catalysts |
+| `omol` | OMol25, wB97M-V | no | — | isolated molecules only (rejected by `ase-adsorb`) |
+| `spice_wB97M` | SPICE, wB97M-D3(BJ) | no | — | isolated organic molecules only (rejected by `ase-adsorb`) |
+
+For adsorption runs:
+
+- Use a periodic head; `omol` and `spice_wB97M` are rejected because a
+  molecular head cannot describe the slab.
+- Check the gas-phase molecule and the approach scan before trusting a head.
+  For CpMo(CO)3H on TiSi(001) the `omat_pbe` head gives the best bulk
+  lattice, but in the gas phase it has a spurious local minimum with the Mo
+  hydride on the Cp ring (+1.07 eV). Relaxations get trapped there, and 15 of
+  33 structures decompose. The `matpes_r2scan` head (like the single-head
+  r2SCAN model) has no such minimum. For organometallic adsorbates, start
+  from `matpes_r2scan` or the r2SCAN model.
+- Set `fallback_models: []` together with `mace_head`. If the model cannot be
+  loaded (a missing or wrong head included), the workflow otherwise silently
+  falls back to the single-head `medium` / `small` models.
+
+```yaml
+calculator:
+  name: macemp
+  mace_mp_model: /home/lungyi/.cache/mace/mace-mh-1.model
+  mace_head: matpes_r2scan     # or omat_pbe, mp_pbe_refit_add, oc20_usemppbe
+  fallback_models: []
+  dispersion: true
+  dispersion_xc: r2scan        # pbe for the PBE heads
+```
+
 ## Periodic Systems
 
 The core optimization functions also accept periodic ASE `Atoms` (bulk
@@ -622,12 +702,10 @@ tested with this workflow:
 `dispersion_xc` must match the functional the model was trained on, because
 it selects the D3(BJ) damping parameters.
 
-Multi-head MACE models such as MACE-MH-1 (`mace-mh-1.model`) need
-`calculator.mace_head`: `omat_pbe` (PBE/PBE+U, OMat24), `mp_pbe_refit_add`,
-`matpes_r2scan`, `oc20_usemppbe`; the molecular heads `omol` and
-`spice_wB97M` are rejected for surfaces. Use `dispersion_xc: pbe` with the PBE
-heads and `r2scan` with `matpes_r2scan`. Set `fallback_models: []`, since the
-fallback models have no such heads.
+Multi-head MACE models such as MACE-MH-1 (`mace-mh-1.model`) also need
+`calculator.mace_head`; single-head models (the two above) leave it unset.
+See [Multi-head MACE models and `mace_head`](#multi-head-mace-models-and-mace_head)
+for the available heads and how to choose one.
 
 UMA models also work: set `calculator.name: uma_s` (or `uma_m`),
 `calculator.uma_model` to a local checkpoint (or a registered name such as
@@ -980,7 +1058,7 @@ with comments). Lengths in Å, energies in eV, angles in degrees, times in s.
 | **calculator** | | must be periodic |
 | `name` | `macemp` | `macemp`, `uma_s`, `uma_m`, `emt` (tests only) |
 | `mace_mp_model` | `medium-mpa-0` | macemp: model name or local model file |
-| `mace_head` | `null` | macemp: head of a multi-head model (e.g. `omat_pbe`, `matpes_r2scan` for `mace-mh-1.model`); unknown heads are an error |
+| `mace_head` | `null` | macemp: head of a multi-head model (required for `mace-mh-1.model`, e.g. `matpes_r2scan`, `omat_pbe`); leave `null` for single-head models; unknown heads are an error. See [Multi-head MACE models](#multi-head-mace-models-and-mace_head) |
 | `fallback_models` | `[medium, small]` | macemp: tried if the model cannot be loaded; `[]` to disable |
 | `uma_model` | `null` | UMA: `null` (= `uma-s-1p1` / `uma-m-1p1`), a registered name, or a local `.pt` checkpoint |
 | `uma_merge_mole` | `false` | UMA: merge the experts once per composition (same energies, much less memory/compute) |
