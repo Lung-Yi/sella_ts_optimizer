@@ -532,13 +532,15 @@ For adsorption runs:
 
 - Use a periodic head; `omol` and `spice_wB97M` are rejected because a
   molecular head cannot describe the slab.
-- Check the gas-phase molecule and the approach scan before trusting a head.
-  For CpMo(CO)3H on TiSi(001) the `omat_pbe` head gives the best bulk
-  lattice, but in the gas phase it has a spurious local minimum with the Mo
-  hydride on the Cp ring (+1.07 eV). Relaxations get trapped there, and 15 of
-  33 structures decompose. The `matpes_r2scan` head (like the single-head
-  r2SCAN model) has no such minimum. For organometallic adsorbates, start
-  from `matpes_r2scan` or the r2SCAN model.
+- Check the gas-phase molecule, the approach scan and the fraction of
+  decomposed structures before trusting a head. For CpMo(CO)3H on TiSi(001)
+  both periodic heads tested keep the gas-phase molecule intact and level off
+  at about 0 eV in the approach scan. `matpes_r2scan` gives the best bulk
+  lattice (-0.3 / -1.4 / -1.0 %), and the Mo hydride moves to the Cp ring,
+  a CO carbon or the surface in 8 of 35 structures. With `omat_pbe` (lattice
+  -0.9 / -1.9 / -1.4 %) this happens in 15 of 33. For organometallic
+  adsorbates start from `matpes_r2scan` or the single-head r2SCAN model
+  (1 of 25), and check such hydrogen transfers with DFT.
 - Set `fallback_models: []` together with `mace_head`. If the model cannot be
   loaded (a missing or wrong head included), the workflow otherwise silently
   falls back to the single-head `medium` / `small` models.
@@ -1023,16 +1025,24 @@ or CO leaving the metal is.
   gas-phase molecule stays eta5, but each step is about 4x slower, so only 7
   structures were relaxed; 2 of them decompose (one embedded in the surface
   at -11 eV).
-- MACE-MH-1 with the `omat_pbe` head (+ D3(BJ, pbe), 1200 s per
-  termination) gives the best bulk lattice (-0.9 / -1.9 / -1.4 %) and a
-  clean approach scan (-0.05 eV at 7 Å), but 15 of 33 relaxed structures
-  decompose, mostly by the Mo hydride hopping onto the Cp ring. In the gas
-  phase this head has a spurious local minimum with H on Cp (+1.07 eV above
-  the intact molecule) that relaxations get trapped in; the r2SCAN MACE model
-  and MH-1's own `matpes_r2scan` head have no such minimum.
-- Summary for this system: r2SCAN MACE (`MACE-matpes-r2scan-omat-ft`) is the
-  most reasonable (24 of 25 intact, scan at 0 eV, fastest);
-  MH-1 `omat_pbe`, MACE-MP-0b3 and UMA all over-bind or decompose the complex.
+- MACE-MH-1 (1200 s per termination, D3 on) levels off at -0.05 eV in the
+  approach scan with both heads tested. With `matpes_r2scan` (+ D3(BJ,
+  r2scan)) it gives the best bulk lattice of all models (-0.3 / -1.4 /
+  -1.0 %), and 8 of 35 relaxed structures transfer the Mo hydride, mostly on
+  t1 (6 of 15) where Mo comes within 1.5-2.5 Å of the surface. With
+  `omat_pbe` (+ D3(BJ, pbe)) this happens in 15 of 33 structures, lattice
+  -0.9 / -1.9 / -1.4 %. The transfers happen on the surface, not because of
+  a gas-phase artifact. Cut out of the slab and relaxed in the gas phase, an
+  H-on-Cp isomer from an `omat_pbe` run returns to Mo-H in all three models.
+  One from a `matpes_r2scan` run stays a local minimum in both r2SCAN
+  models (+0.67 eV with MH-1 `matpes_r2scan`, +0.15 eV with r2SCAN MACE).
+  Whether the hydrogen transfer is real needs DFT.
+- Summary for this system: r2SCAN MACE (`MACE-matpes-r2scan-omat-ft`) keeps
+  the complex intact most consistently (24 of 25, scan at 0 eV, fastest).
+  MH-1 `matpes_r2scan` is the best for the bulk and second for the
+  adsorbate. MACE-MP-0b3 and UMA over-bind or decompose the complex.
+  Fewer decompositions do not prove a model right: validate the intact and
+  the hydrogen-transfer structures with DFT.
 - Check the approach scan: at the largest clearance E_ads should be close to
   0 eV. UMA energies are not additive between systems of different
   composition (most likely because UMA mixes its experts according to the
