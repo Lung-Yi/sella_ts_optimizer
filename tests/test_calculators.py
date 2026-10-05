@@ -397,3 +397,23 @@ def test_periodic_uma_tasks_fix_charge_and_spin(fake_backends, monkeypatch):
     assert seen == [("oc20", 0, 0)] and atoms.info["spin"] == 2
     # omol keeps the plain FAIRChemCalculator and its charge/spin handling.
     assert isinstance(build_calculator(CalculatorConfig(name="uma_s", device="cpu")), FakeFairchem)
+
+
+def test_mace_head_is_selected_and_checked(fake_backends, monkeypatch):
+    def fake_mace_mp(**kwargs):
+        heads = ["matpes_r2scan", "omol", "omat_pbe"]
+        requested = kwargs.get("head")
+        head = requested if requested in heads else heads[-1]
+        return types.SimpleNamespace(source="mace_mp", kwargs=kwargs, head=head, available_heads=heads)
+
+    monkeypatch.setattr(sys.modules["mace.calculators"], "mace_mp", fake_mace_mp)
+    config = CalculatorConfig(name="macemp", mace_mp_model="/m/mace-mh-1.model", mace_head="matpes_r2scan", device="cpu")
+    calc = build_calculator(config)
+    assert calc.head == "matpes_r2scan" and "dispersion" not in calc.kwargs
+    with pytest.raises(ValueError, match="no head 'bogus'"):
+        build_calculator(dataclasses.replace(config, mace_head="bogus"))
+
+    level = calculator_capabilities(dataclasses.replace(config, mace_head="omat_pbe", dispersion=True))
+    assert level.periodic and level.level_of_theory == "PBE/PBE+U (OMat24), head omat_pbe + D3(BJ, pbe)"
+    assert not calculator_capabilities(dataclasses.replace(config, mace_head="omol")).periodic
+    assert calculators.model_label(config) == "/m/mace-mh-1.model (head matpes_r2scan)"

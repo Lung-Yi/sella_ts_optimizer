@@ -32,6 +32,7 @@ class CalculatorConfig:
     dispersion_xc: str = "pbe"
     uma_model: str = ""
     uma_merge_mole: bool = False
+    mace_head: str = ""
 
 
 @dataclass(frozen=True)
@@ -160,20 +161,7 @@ def build_calculator(config: CalculatorConfig) -> Any:
                 return FAIRChemCalculator(predictor)
             calculator = FAIRChemCalculator(predictor, task_name=config.uma_task)
         if _uma_adds_d3(config):
-            import torch
-            from ase import units
-            from ase.calculators.mixing import SumCalculator
-            from torch_dftd.torch_dftd3_calculator import TorchDFTD3Calculator
-
-            # Same D3(BJ) settings as mace_mp(dispersion=True).
-            d3 = TorchDFTD3Calculator(
-                device=device,
-                damping="bj",
-                dtype=torch.float32 if config.dtype == "float32" else torch.float64,
-                xc=config.dispersion_xc,
-                cutoff=40.0 * units.Bohr,
-            )
-            return SumCalculator([calculator, d3])
+            return _with_d3(calculator, config, device)
         return calculator
 
     if name == "aimnet2":
@@ -196,14 +184,27 @@ def build_calculator(config: CalculatorConfig) -> Any:
         from mace.calculators import mace_mp
 
         device = _resolve_device(config.device)
-        return mace_mp(
-            model=config.mace_mp_model,
-            device=device,
-            default_dtype=config.dtype,
-            dispersion=config.dispersion,
-            damping="bj",
-            dispersion_xc=config.dispersion_xc,
-        )
+        if not config.mace_head:
+            return mace_mp(
+                model=config.mace_mp_model,
+                device=device,
+                default_dtype=config.dtype,
+                dispersion=config.dispersion,
+                damping="bj",
+                dispersion_xc=config.dispersion_xc,
+            )
+        # mace_mp() forwards extra keywords such as `head` to the D3 calculator
+        # as well, so the multi-head model and D3 are combined here instead.
+        calculator = mace_mp(model=config.mace_mp_model, device=device, default_dtype=config.dtype, head=config.mace_head)
+        if calculator.head != config.mace_head:
+            # MACECalculator silently falls back to the last head for unknown names.
+            raise ValueError(
+                f"MACE model {config.mace_mp_model} has no head '{config.mace_head}'; "
+                f"available heads: {', '.join(calculator.available_heads)}"
+            )
+        if config.dispersion:
+            return _with_d3(calculator, config, device)
+        return calculator
 
     choices = ", ".join(available_calculators())
     raise ValueError(f"Unknown calculator '{name}'. Choose one of: {choices}")
@@ -248,11 +249,14 @@ def calculator_capabilities(config: CalculatorConfig) -> CalculatorCapabilities:
     name = config.name
 
     if name == "macemp":
-        level = _macemp_level(config.mace_mp_model)
+        if config.mace_head:
+            level, periodic = _mace_head_level(config.mace_head)
+        else:
+            level, periodic = _macemp_level(config.mace_mp_model), True
         if config.dispersion:
             level += f" + D3(BJ, {config.dispersion_xc})"
         return CalculatorCapabilities(
-            periodic=True, uses_charge_spin=False, elements=None, level_of_theory=level
+            periodic=periodic, uses_charge_spin=False, elements=None, level_of_theory=level
         )
 
     if name in {"uma_s", "uma_m"}:
@@ -420,11 +424,29 @@ def _mmap_torch_load() -> Iterator[None]:
         torch.load = original
 
 
+def _with_d3(calculator: Any, config: CalculatorConfig, device: str) -> Any:
+    """`calculator` plus D3(BJ) with the same settings as mace_mp(dispersion=True)."""
+
+    import torch
+    from ase import units
+    from ase.calculators.mixing import SumCalculator
+    from torch_dftd.torch_dftd3_calculator import TorchDFTD3Calculator
+
+    d3 = TorchDFTD3Calculator(
+        device=device,
+        damping="bj",
+        dtype=torch.float32 if config.dtype == "float32" else torch.float64,
+        xc=config.dispersion_xc,
+        cutoff=40.0 * units.Bohr,
+    )
+    return SumCalculator([calculator, d3])
+
+
 def model_label(config: CalculatorConfig) -> str:
     """Name or file path of the ML model behind `config`, else the calculator name."""
 
     if config.name == "macemp":
-        return config.mace_mp_model
+        return config.mace_mp_model + (f" (head {config.mace_head})" if config.mace_head else "")
     if config.name == "maceomol":
         return config.mace_model
     if config.name in FAIRCHEM_DEFAULT_MODELS:
@@ -442,6 +464,23 @@ def _uma_adds_d3(config: CalculatorConfig) -> bool:
     """Whether D3(BJ) is added on top of a UMA task (never for tasks trained with D3)."""
 
     return config.name in {"uma_s", "uma_m"} and config.dispersion and config.uma_task not in UMA_TASKS_WITH_D3
+
+
+# Heads of multi-head MACE models (e.g. MACE-MH-1): training level and whether
+# the head describes periodic systems. Unknown heads are assumed periodic.
+MACE_HEAD_LEVELS = {
+    "omat_pbe": ("PBE/PBE+U (OMat24)", True),
+    "mp_pbe_refit_add": ("PBE/PBE+U (MPtrj)", True),
+    "matpes_r2scan": ("r2SCAN (MatPES)", True),
+    "oc20_usemppbe": ("PBE (OC20)", True),
+    "omol": ("wB97M-V (OMol25)", False),
+    "spice_wB97M": ("wB97M-D3(BJ) (SPICE)", False),
+}
+
+
+def _mace_head_level(head: str) -> tuple[str, bool]:
+    level, periodic = MACE_HEAD_LEVELS.get(head, (f"head {head}", True))
+    return f"{level}, head {head}", periodic
 
 
 def _validate_uma_task(config: CalculatorConfig) -> None:

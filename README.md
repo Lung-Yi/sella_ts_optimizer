@@ -622,6 +622,13 @@ tested with this workflow:
 `dispersion_xc` must match the functional the model was trained on, because
 it selects the D3(BJ) damping parameters.
 
+Multi-head MACE models such as MACE-MH-1 (`mace-mh-1.model`) need
+`calculator.mace_head`: `omat_pbe` (PBE/PBE+U, OMat24), `mp_pbe_refit_add`,
+`matpes_r2scan`, `oc20_usemppbe`; the molecular heads `omol` and
+`spice_wB97M` are rejected for surfaces. Use `dispersion_xc: pbe` with the PBE
+heads and `r2scan` with `matpes_r2scan`. Set `fallback_models: []`, since the
+fallback models have no such heads.
+
 UMA models also work: set `calculator.name: uma_s` (or `uma_m`),
 `calculator.uma_model` to a local checkpoint (or a registered name such as
 `uma-s-1p2`; `null` downloads `uma-s-1p1`, which needs a Hugging Face login),
@@ -739,7 +746,7 @@ ase-adsorb run --molecule CpMo_CO3H.xyz --solid TiSi.cif \
 ```
 
 Options: `--molecule`, `--solid`, `--calculator`, `--mace-mp-model`,
-`--uma-model`, `--uma-task`, `--device`, `--miller H K L` (repeatable), `--budget`
+`--mace-head`, `--uma-model`, `--uma-task`, `--device`, `--miller H K L` (repeatable), `--budget`
 (seconds per termination, 0 = unlimited), `--run-dir`. `dispersion_xc` and
 all other settings are set in the configuration file.
 
@@ -938,6 +945,16 @@ or CO leaving the metal is.
   gas-phase molecule stays eta5, but each step is about 4x slower, so only 7
   structures were relaxed; 2 of them decompose (one embedded in the surface
   at -11 eV).
+- MACE-MH-1 with the `omat_pbe` head (+ D3(BJ, pbe), 1200 s per
+  termination) gives the best bulk lattice (-0.9 / -1.9 / -1.4 %) and a
+  clean approach scan (-0.05 eV at 7 Å), but 15 of 33 relaxed structures
+  decompose, mostly by the Mo hydride hopping onto the Cp ring. In the gas
+  phase this head has a spurious local minimum with H on Cp (+1.07 eV above
+  the intact molecule) that relaxations get trapped in; the r2SCAN MACE model
+  and MH-1's own `matpes_r2scan` head have no such minimum.
+- Summary for this system: r2SCAN MACE (`MACE-matpes-r2scan-omat-ft`) is the
+  most reasonable (24 of 25 intact, scan at 0 eV, fastest);
+  MH-1 `omat_pbe`, MACE-MP-0b3 and UMA all over-bind or decompose the complex.
 - Check the approach scan: at the largest clearance E_ads should be close to
   0 eV. UMA energies are not additive between systems of different
   composition (most likely because UMA mixes its experts according to the
@@ -963,6 +980,7 @@ with comments). Lengths in Å, energies in eV, angles in degrees, times in s.
 | **calculator** | | must be periodic |
 | `name` | `macemp` | `macemp`, `uma_s`, `uma_m`, `emt` (tests only) |
 | `mace_mp_model` | `medium-mpa-0` | macemp: model name or local model file |
+| `mace_head` | `null` | macemp: head of a multi-head model (e.g. `omat_pbe`, `matpes_r2scan` for `mace-mh-1.model`); unknown heads are an error |
 | `fallback_models` | `[medium, small]` | macemp: tried if the model cannot be loaded; `[]` to disable |
 | `uma_model` | `null` | UMA: `null` (= `uma-s-1p1` / `uma-m-1p1`), a registered name, or a local `.pt` checkpoint |
 | `uma_merge_mole` | `false` | UMA: merge the experts once per composition (same energies, much less memory/compute) |
@@ -1072,6 +1090,7 @@ stages; `analyze_molecule(atoms, config.molecule_props)` is what
 | `... is a molecular model ... cannot describe surfaces` | use `macemp`, or `uma_s`/`uma_m` with a periodic `uma_task` (e.g. `oc20`, `omat`) |
 | UMA asks for a Hugging Face login | set `calculator.uma_model` to a local `.pt` checkpoint |
 | UMA-M killed while loading / CUDA out of memory | set `calculator.uma_merge_mole: true` |
+| MACE model fails to load with `ValueError: too many values to unpack` | e3nn is too new: mace-torch needs `e3nn==0.4.4`, but fairchem-core installs `e3nn>=0.5`. Keep MACE and FAIRChem (UMA) in separate environments |
 | `uma_task ... has no trained stress head` warning | expected for `oc20` etc.; the input lattice is kept. Use experimental lattice constants in the CIF |
 | `... does not support element(s)` | the calculator (e.g. `emt`) lacks an element; use `macemp` or UMA |
 | `already contains a run` | rename the old run directory, set `run_dir`, or `ase-adsorb resume` it |

@@ -54,6 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--solid", type=Path, default=None, help="Bulk crystal or slab (cif).")
     run.add_argument("--calculator", default=None, help="calculator.name, e.g. macemp.")
     run.add_argument("--mace-mp-model", default=None, help="calculator.mace_mp_model (name or file path).")
+    run.add_argument("--mace-head", default=None, help="calculator.mace_head (multi-head MACE models).")
     run.add_argument("--uma-model", default=None, help="calculator.uma_model (name or checkpoint file path).")
     run.add_argument("--uma-task", default=None, help="calculator.uma_task (oc20, omat, oc22, oc25, odac or omc).")
     run.add_argument("--device", default=None, help="calculator.device (auto, cuda, cpu).")
@@ -133,6 +134,7 @@ def run_config_from_args(args: argparse.Namespace):
         ("calculator", "name"),
         ("mace_mp_model", "mace_mp_model"),
         ("uma_model", "uma_model"),
+        ("mace_head", "mace_head"),
         ("uma_task", "uma_task"),
         ("device", "device"),
     ):

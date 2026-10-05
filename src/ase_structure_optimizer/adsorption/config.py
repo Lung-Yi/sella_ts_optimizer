@@ -265,6 +265,7 @@ class CalculatorSection:
 
     name: str = _setting("macemp", _calculator_name)
     mace_mp_model: str = _setting("medium-mpa-0", _str)
+    mace_head: str | None = _setting(None, _optional(_str))
     fallback_models: tuple[str, ...] = _setting(("medium", "small"), _list(_str))
     uma_model: str | None = _setting(None, _optional(_str))
     uma_merge_mole: bool = _setting(False, _bool)
@@ -303,6 +304,7 @@ class CalculatorSection:
             uma_task=self.uma_task,
             uma_model=self.uma_model or "",
             uma_merge_mole=self.uma_merge_mole,
+            mace_head=self.mace_head or "",
         )
 
 
@@ -672,6 +674,7 @@ calculator:                    # must be a periodic calculator
   # reference energy is an extrapolation: validate final numbers with DFT.
   name: macemp
   mace_mp_model: medium-mpa-0  # macemp only: model name, or a local model file path (no internet access)
+  mace_head: null              # macemp only: head of a multi-head model, e.g. omat_pbe for mace-mh-1.model
   fallback_models: [medium, small]   # macemp only: tried in order if the model fails to load
   uma_model: null              # uma_s / uma_m only: null = uma-s-1p1 / uma-m-1p1 (HuggingFace login),
                                #   a registered name (uma-s-1p2), or a local checkpoint (.pt) path
